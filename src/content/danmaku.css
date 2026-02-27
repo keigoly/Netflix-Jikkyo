@@ -1,0 +1,108 @@
+/* Netflix Jikkyo 弾幕CSS - DPlayer danmaku.scss ベース */
+
+.nfjk-danmaku {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 16/9;
+  margin: auto;
+  font-size: 29px;
+  font-family: var(--nfjk-danmaku-font-family, 'Montserrat'), "Segoe UI", Arial, sans-serif;
+  color: #fff;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 2147483646;
+}
+
+.nfjk-danmaku-item {
+  display: inline-block;
+  font-weight: bold;
+  font-size: var(--nfjk-danmaku-font-size, 24px);
+  opacity: var(--nfjk-danmaku-opacity, 1);
+  white-space: nowrap;
+  text-shadow: 1.2px 1.2px 4px rgba(0, 0, 0, 0.9);
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
+}
+
+/* 右から左に流れるコメント */
+.nfjk-danmaku-right {
+  position: absolute;
+  right: 0;
+  transform: translateX(100%);
+}
+
+.nfjk-danmaku-right.nfjk-danmaku-move {
+  animation-name: nfjk-danmaku-flow;
+  animation-timing-function: linear;
+  animation-play-state: running;
+}
+
+/* 動画一時停止中: 全アニメーションを凍結 */
+.nfjk-danmaku.nfjk-paused .nfjk-danmaku-item.nfjk-danmaku-move,
+.nfjk-danmaku.nfjk-paused .nfjk-danmaku-admin.nfjk-danmaku-move {
+  animation-play-state: paused;
+}
+
+@keyframes nfjk-danmaku-flow {
+  from {
+    transform: translateX(100%);
+  }
+  /* to はJS側で translateX(-containerWidth) を設定 */
+}
+
+/* 自分のコメント (ニコニコ風 黄色い枠) */
+.nfjk-danmaku-mine {
+  outline: 3px solid rgba(255, 204, 0, 0.85);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* 管理者コメント (上部中央固定・ニコ生公式風) */
+.nfjk-danmaku-admin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: center;
+  padding: 10px 0;
+  background: linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.7) 0%,
+    rgba(0, 0, 0, 0.5) 70%,
+    transparent 100%
+  );
+  color: #FFE133;
+  font-size: calc(var(--nfjk-danmaku-font-size, 24px) * 1.15);
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.9), 0 0 2px rgba(0, 0, 0, 0.9);
+  opacity: 0;
+  z-index: 1;
+}
+
+.nfjk-danmaku-admin.nfjk-danmaku-move {
+  animation-name: nfjk-danmaku-admin-show;
+  animation-timing-function: ease-out;
+  animation-play-state: running;
+}
+
+@keyframes nfjk-danmaku-admin-show {
+  0% {
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}

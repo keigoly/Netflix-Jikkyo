@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Netflix Jikkyo",
+    "description": "Extension name shown in non-Japanese Chrome browsers"
+  },
+  "appDescription": {
+    "message": "Transform Netflix into a shared real-time experience. Connect instantly with global viewers using secure P2P technology.",
+    "description": "Extension description shown in non-Japanese Chrome browsers"
+  }
+}

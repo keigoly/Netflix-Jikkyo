@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Netflix Jikkyo</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup">
+    <header class="header">
+      <h1 class="title">Netflix Jikkyo</h1>
+      <span class="version">v0.1.0</span>
+    </header>
+
+    <section class="section">
+      <h2 class="section-title" data-i18n="popup_status_title">接続ステータス</h2>
+      <div class="status-row">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text" data-i18n="popup_status_disconnected">未接続</span>
+      </div>
+      <div class="peer-info">
+        <span data-i18n="popup_peers_label">接続中のピア:</span> <strong id="peer-count">0</strong>
+      </div>
+      <button class="open-panel-btn" id="open-panel" data-i18n="popup_open_panel">コメントパネルを開く</button>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title" data-i18n="popup_settings_title">設定</h2>
+
+      <div class="field">
+        <label for="nickname" data-i18n="popup_nickname_label">ニックネーム</label>
+        <input type="text" id="nickname" data-i18n-placeholder="popup_nickname_placeholder" placeholder="ゲスト" maxlength="18">
+      </div>
+
+      <div class="field">
+        <label for="speed" data-i18n="popup_speed_label">コメント速度</label>
+        <div class="range-row">
+          <input type="range" id="speed" min="0.5" max="2.0" step="0.1" value="1.0">
+          <span id="speed-val">1.0x</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="opacity" data-i18n="popup_opacity_label">透明度</label>
+        <div class="range-row">
+          <input type="range" id="opacity" min="0.1" max="1.0" step="0.1" value="1.0">
+          <span id="opacity-val">100%</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="fontsize" data-i18n="popup_scale_label">表示サイズ</label>
+        <div class="range-row">
+          <input type="range" id="fontsize" min="50" max="100" step="10" value="100">
+          <span id="fontsize-val">100%</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="checkbox-label">
+          <input type="checkbox" id="enabled" checked>
+          <span data-i18n="popup_enabled_label">コメント表示</span>
+        </label>
+      </div>
+
+      <div class="field">
+        <label class="checkbox-label">
+          <input type="checkbox" id="unlimited">
+          <span data-i18n="popup_unlimited_label">コメント表示を無制限</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="section">
+      <h2 class="section-title" data-i18n="popup_log_title">過去ログ</h2>
+      <div id="log-list" class="log-list">
+        <div class="log-empty" data-i18n="popup_log_empty">ログはまだありません</div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span data-i18n="popup_footer">Netflix Jikkyo - P2Pサーバーレス実況</span>
+    </footer>
+  </div>
+
+  <script type="module" src="index.ts"></script>
+</body>
+</html>

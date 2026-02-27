@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "ネトフリで実況",
+    "description": "Extension name shown in Japanese Chrome browsers"
+  },
+  "appDescription": {
+    "message": "Netflixの視聴画面にリアルタイムでコメントを共有。\n完全サーバーレスとP2P通信で実現する、プライバシー特化の全く新しい動画体験。",
+    "description": "Extension description shown in Japanese Chrome browsers"
+  }
+}

@@ -1,0 +1,10 @@
+name = "netflix-jikkyo-config"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+
+[vars]
+LIVE_RELAY = "false"
+RELAY_ENDPOINT = ""
+RELAY_TITLE_IDS = ""
+ANNOUNCEMENT = ""
+MIN_VERSION = ""

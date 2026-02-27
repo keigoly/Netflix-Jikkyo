@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Netflix Jikkyo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <div class="panel">
+    <!-- 認証ゲート -->
+    <div class="nfjk-auth-gate" id="auth-gate">
+      <div class="nfjk-auth-gate-content">
+        <img src="../../public/icons/icon-nobg.png" alt="Netflix Jikkyo" class="nfjk-auth-icon nfjk-locale-icon" width="64" height="64">
+        <h1 class="nfjk-auth-title" data-i18n="app_title">ネトフリで実況</h1>
+        <p class="nfjk-auth-desc" data-i18n="auth_desc">利用にはGoogleアカウントでのログインが必要です。</p>
+        <button class="nfjk-auth-google-btn" id="auth-google-btn" data-i18n="auth_google_btn">
+          <svg class="nfjk-google-icon" width="18" height="18" viewBox="0 0 48 48">
+            <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+            <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+            <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+            <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+          </svg>
+          Googleでログイン
+        </button>
+        <p class="nfjk-auth-error" id="auth-error"></p>
+      </div>
+    </div>
+
+    <!-- オンボーディング -->
+    <div class="nfjk-onboarding hidden" id="onboarding">
+      <div class="nfjk-onboarding-content">
+        <img class="nfjk-onboarding-avatar" id="onboarding-avatar" src="" alt="" width="48" height="48">
+        <h2 class="nfjk-onboarding-title" data-i18n="onboarding_welcome">ようこそ！</h2>
+        <div class="nfjk-onboarding-field">
+          <label for="onboarding-nickname" data-i18n="onboarding_nickname">ニックネーム</label>
+          <div class="nfjk-onboarding-input-row">
+            <input type="text" id="onboarding-nickname" data-i18n-placeholder="onboarding_nickname_placeholder" placeholder="ニックネーム" minlength="3" maxlength="18">
+            <span class="nfjk-char-count" id="onboarding-char-count">0/10</span>
+          </div>
+          <p class="nfjk-onboarding-hint" data-i18n="onboarding_hint">3〜18文字 / 変更は30日に1回</p>
+          <p class="nfjk-onboarding-error" id="onboarding-error"></p>
+        </div>
+        <button class="nfjk-onboarding-start" id="onboarding-start" data-i18n="onboarding_start">はじめる</button>
+      </div>
+    </div>
+
+    <!-- ヘッダー -->
+    <header class="panel-header">
+      <div class="header-left">
+        <span class="panel-title">NETFLIX JIKKYO</span>
+      </div>
+      <div class="header-right">
+        <button class="popout-btn" id="popout-btn" data-i18n-title="header_popout_title" title="別ウィンドウで開く">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+        </button>
+        <button class="gear-btn" id="gear-btn" data-i18n-title="header_settings_title" title="設定">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- タイトル情報 -->
+    <div class="title-info" id="title-info">
+      <div class="title-info-header">
+        <div class="title-info-text">
+          <div class="title-name" id="title-name"></div>
+          <div class="title-subtitle" id="title-subtitle"></div>
+        </div>
+        <button class="title-reload-btn" id="title-reload-btn" data-i18n-title="title_reload_tooltip" title="タイトル情報・コメントを再読み込み">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+        </button>
+      </div>
+      <div class="title-description" id="title-description"></div>
+    </div>
+
+    <!-- 非Netflix案内 -->
+    <div class="nfjk-no-netflix hidden" id="no-netflix">
+      <button class="nfjk-no-netflix-gear" id="no-netflix-gear" data-i18n-title="header_settings_title" title="設定">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+      <div class="nfjk-no-netflix-content">
+        <img src="../../public/icons/icon-nobg.png" alt="Netflix Jikkyo" class="nfjk-no-netflix-icon nfjk-locale-icon" width="56" height="56">
+        <p data-i18n="no_netflix_message">Netflix の作品ページを開いてください</p>
+        <span data-i18n="no_netflix_hint">netflix.com/watch/... のページで利用できます</span>
+      </div>
+    </div>
+
+    <!-- コンテンツエリア -->
+    <div class="content-area" id="content-area">
+
+      <!-- 設定スライド -->
+      <div class="nfjk-settings-slide" id="settings-slide">
+        <div class="nfjk-settings-header">
+          <button class="nfjk-settings-back" id="settings-back" data-i18n-title="settings_back_title" title="戻る">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
+          <span class="nfjk-settings-title" data-i18n="settings_title">設定</span>
+        </div>
+        <div class="nfjk-settings-body">
+
+          <!-- ユーザー -->
+          <div class="nfjk-accordion" data-section="user">
+            <button class="nfjk-accordion-header">
+              <div class="nfjk-accordion-label">
+                <span class="nfjk-accordion-title" data-i18n="section_user">ユーザー</span>
+                <span class="nfjk-accordion-preview" id="acc-preview-user" data-i18n="user_preview_guest">ゲスト</span>
+              </div>
+              <span class="nfjk-accordion-chevron">▼</span>
+            </button>
+            <div class="nfjk-accordion-content">
+              <div class="nfjk-user-row" id="user-row">
+                <img class="nfjk-user-avatar" id="user-avatar" src="" alt="" width="24" height="24">
+                <span class="nfjk-user-email" id="user-email"></span>
+              </div>
+              <div class="field">
+                <label for="nickname" data-i18n="user_nickname_label">ニックネーム</label>
+                <div class="nfjk-nickname-row">
+                  <input type="text" id="nickname" data-i18n-placeholder="user_nickname_placeholder" placeholder="ニックネーム" minlength="3" maxlength="18">
+                  <button class="nfjk-nickname-save hidden" id="nickname-save" data-i18n="user_nickname_save">保存</button>
+                </div>
+                <p class="nfjk-nickname-hint" id="nickname-hint" data-i18n="user_nickname_hint">3〜18文字 / 変更は30日に1回</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 言語 -->
+          <div class="nfjk-accordion" data-section="language">
+            <button class="nfjk-accordion-header">
+              <div class="nfjk-accordion-label">
+                <span class="nfjk-accordion-title" data-i18n="section_language">言語</span>
+                <span class="nfjk-accordion-preview" id="acc-preview-lang">日本語</span>
+              </div>
+              <span class="nfjk-accordion-chevron">▼</span>
+            </button>
+            <div class="nfjk-accordion-content">
+              <div class="nfjk-lang-picker" id="lang-picker"></div>
+            </div>
+          </div>
+
+          <!-- 最新アップデート情報 -->
+          <div class="nfjk-accordion" data-section="update">
+            <button class="nfjk-accordion-header">
+              <div class="nfjk-accordion-label">
+                <span class="nfjk-accordion-title" data-i18n="section_update">最新アップデート情報 <span class="nfjk-update-badge hidden" id="update-badge">NEW</span></span>
+                <span class="nfjk-accordion-preview" id="acc-preview-update" data-i18n="update_preview_loading">読み込み中…</span>
+              </div>
+              <span class="nfjk-accordion-chevron">▼</span>
+            </button>
+            <div class="nfjk-accordion-content">
+              <div class="nfjk-update-content" id="update-content">
+                <div class="nfjk-update-header">
+                  <span class="nfjk-update-version" id="update-version"></span>
+                  <span class="nfjk-update-date" id="update-date"></span>
+                </div>
+                <div class="nfjk-update-body" id="update-body"></div>
+                <a class="nfjk-update-github-btn" id="update-github-link" href="#" target="_blank" rel="noopener noreferrer" data-i18n="update_github_btn">GitHubで見る</a>
+              </div>
+              <div class="nfjk-update-error hidden" id="update-error" data-i18n="update_fetch_error">取得に失敗しました</div>
+            </div>
+          </div>
+
+          <!-- コメント設定 -->
+          <div class="nfjk-accordion" data-section="danmaku">
+            <button class="nfjk-accordion-header">
+              <div class="nfjk-accordion-label">
+                <span class="nfjk-accordion-title" data-i18n="section_danmaku">コメント設定</span>
+                <span class="nfjk-accordion-preview" id="acc-preview-danmaku">速度 1.0x / 不透明度 100%</span>
+              </div>
+              <span class="nfjk-accordion-chevron">▼</span>
+            </button>
+            <div class="nfjk-accordion-content">
+              <div class="field">
+                <div class="nfjk-toggle-row">
+                  <span class="nfjk-toggle-label" data-i18n="danmaku_enabled">コメント表示</span>
+                  <label class="nfjk-toggle">
+                    <input type="checkbox" id="enabled" checked>
+                    <span class="nfjk-toggle-track"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="field">
+                <label for="speed" data-i18n="danmaku_speed">コメント速度</label>
+                <div class="range-row">
+                  <input type="range" id="speed" min="0.5" max="2.0" step="0.1" value="1.0">
+                  <span id="speed-val">1.0x</span>
+                </div>
+              </div>
+              <div class="field">
+                <label for="opacity" data-i18n="danmaku_opacity">透明度</label>
+                <div class="range-row">
+                  <input type="range" id="opacity" min="0.1" max="1.0" step="0.1" value="1.0">
+                  <span id="opacity-val">100%</span>
+                </div>
+              </div>
+              <div class="field">
+                <label for="fontsize" data-i18n="danmaku_scale">表示サイズ</label>
+                <div class="range-row">
+                  <input type="range" id="fontsize" min="50" max="100" step="10" value="100">
+                  <span id="fontsize-val">100%</span>
+                </div>
+              </div>
+              <div class="field">
+                <label for="danmaku-font-select" data-i18n="danmaku_font">コメントフォント</label>
+                <select id="danmaku-font-select"></select>
+              </div>
+              <div class="field">
+                <div class="nfjk-toggle-row">
+                  <span class="nfjk-toggle-label" data-i18n="danmaku_unlimited">コメント表示を無制限</span>
+                  <label class="nfjk-toggle">
+                    <input type="checkbox" id="unlimited">
+                    <span class="nfjk-toggle-track"></span>
+                  </label>
+                </div>
+              </div>
+              <div class="field">
+                <div class="nfjk-toggle-row">
+                  <span class="nfjk-toggle-label" data-i18n="danmaku_highlight">再生位置ハイライト</span>
+                  <label class="nfjk-toggle">
+                    <input type="checkbox" id="now-playing-highlight" checked>
+                    <span class="nfjk-toggle-track"></span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 表示設定 -->
+          <div class="nfjk-accordion" data-section="display">
+            <button class="nfjk-accordion-header">
+              <div class="nfjk-accordion-label">
+                <span class="nfjk-accordion-title" data-i18n="section_display">デザイン</span>
+                <span class="nfjk-accordion-preview" id="acc-preview-display">13px / Montserrat / デフォルト</span>
+              </div>
+              <span class="nfjk-accordion-chevron">▼</span>
+            </button>
+            <div class="nfjk-accordion-content">
+              <div class="field">
+                <label data-i18n="display_fontsize">フォントサイズ</label>
+                <div class="nfjk-fontsize-slider">
+                  <span class="nfjk-fontsize-label-sm">Aa</span>
+                  <div class="nfjk-fontsize-track">
+                    <div class="nfjk-fontsize-line"></div>
+                    <div class="nfjk-fontsize-dot" data-size="11">11</div>
+                    <div class="nfjk-fontsize-dot" data-size="12">12</div>
+                    <div class="nfjk-fontsize-dot selected" data-size="13">13</div>
+                    <div class="nfjk-fontsize-dot" data-size="14">14</div>
+                    <div class="nfjk-fontsize-dot" data-size="16">16</div>
+                  </div>
+                  <span class="nfjk-fontsize-label-lg">Aa</span>
+                </div>
+              </div>
+              <div class="field">
+                <label for="font-select" data-i18n="display_system_font">システムフォント</label>
+                <select id="font-select"></select>
+              </div>
+              <div class="field">
+                <label data-i18n="display_background">背景</label>
+                <div class="nfjk-bg-picker" id="bg-picker">
+                  <div class="nfjk-bg-option selected" data-bg="default">
+                    <div class="nfjk-bg-check"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+                    <span data-i18n="bg_default">デフォルト</span>
+                  </div>
+                  <div class="nfjk-bg-option" data-bg="light">
+                    <div class="nfjk-bg-check"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+                    <span data-i18n="bg_light">ライト</span>
+                  </div>
+                  <div class="nfjk-bg-option" data-bg="darkblue">
+                    <div class="nfjk-bg-check"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+                    <span data-i18n="bg_darkblue">ダークブルー</span>
+                  </div>
+                  <div class="nfjk-bg-option" data-bg="black">
+                    <div class="nfjk-bg-check"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></div>
+                    <span data-i18n="bg_black">ブラック</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- NG設定 -->
+          <div class="nfjk-accordion" data-section="ng">
+            <button class="nfjk-accordion-header">
+              <div class="nfjk-accordion-label">
+                <span class="nfjk-accordion-title" data-i18n="section_ng">NG設定</span>
+                <span class="nfjk-accordion-preview" id="acc-preview-ng">合計 0件</span>
+              </div>
+              <span class="nfjk-accordion-chevron">▼</span>
+            </button>
+            <div class="nfjk-accordion-content">
+              <div class="field">
+                <div class="nfjk-ng-list-row">
+                  <div class="nfjk-ng-list-info">
+                    <span class="nfjk-ng-list-title" data-i18n="ng_comment">コメント</span>
+                    <span class="nfjk-ng-list-count" id="ng-comment-count">0件</span>
+                  </div>
+                  <button class="nfjk-ng-edit-btn" id="ng-comment-edit">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    <span data-i18n="ng_edit">編集</span>
+                  </button>
+                </div>
+              </div>
+              <!-- コマンドNG: 将来のプレミアム機能用に残す (現在未使用) -->
+              <div class="field hidden">
+                <div class="nfjk-ng-list-row">
+                  <div class="nfjk-ng-list-info">
+                    <span class="nfjk-ng-list-title" data-i18n="ng_command">コマンド</span>
+                    <span class="nfjk-ng-list-count" id="ng-command-count">0件</span>
+                  </div>
+                  <button class="nfjk-ng-edit-btn" id="ng-command-edit">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    <span data-i18n="ng_edit">編集</span>
+                  </button>
+                </div>
+              </div>
+              <div class="field">
+                <div class="nfjk-ng-list-row">
+                  <div class="nfjk-ng-list-info">
+                    <span class="nfjk-ng-list-title" data-i18n="ng_userid">ユーザーID</span>
+                    <span class="nfjk-ng-list-count" id="ng-userid-count">0件</span>
+                  </div>
+                  <button class="nfjk-ng-edit-btn" id="ng-userid-edit">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    <span data-i18n="ng_edit">編集</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- NG編集モーダル -->
+          <div class="nfjk-ng-modal hidden" id="ng-modal">
+            <div class="nfjk-ng-modal-header">
+              <button class="nfjk-ng-modal-back" id="ng-modal-back">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+              <span class="nfjk-ng-modal-title" id="ng-modal-title">NG編集</span>
+            </div>
+            <div class="nfjk-ng-modal-body">
+              <div class="nfjk-ng-add-row">
+                <input type="text" class="nfjk-ng-add-input" id="ng-add-input" data-i18n-placeholder="ng_add_placeholder" placeholder="追加...">
+                <button class="nfjk-ng-add-btn" id="ng-add-btn" data-i18n="ng_add_btn">追加</button>
+              </div>
+              <div class="nfjk-ng-items" id="ng-items"></div>
+              <div class="nfjk-ng-empty" id="ng-empty" data-i18n="ng_empty">登録なし</div>
+            </div>
+          </div>
+
+          <!-- ストレージ -->
+          <div class="nfjk-accordion" data-section="data">
+            <button class="nfjk-accordion-header">
+              <div class="nfjk-accordion-label">
+                <span class="nfjk-accordion-title" data-i18n="section_storage">ストレージ</span>
+                <span class="nfjk-accordion-preview" id="acc-preview-data" data-i18n="storage_preview_loading">読み込み中…</span>
+              </div>
+              <span class="nfjk-accordion-chevron">▼</span>
+            </button>
+            <div class="nfjk-accordion-content">
+              <div class="nfjk-storage-summary">
+                <span class="nfjk-storage-label" data-i18n="storage_total_label">合計:</span>
+                <span id="stats-text" data-i18n="storage_preview_loading">読み込み中…</span>
+              </div>
+              <div class="nfjk-storage-actions">
+                <div class="nfjk-storage-row">
+                  <div class="nfjk-storage-row-info">
+                    <span class="nfjk-storage-row-title" data-i18n="storage_export">設定をエクスポート</span>
+                  </div>
+                  <button class="nfjk-storage-action-btn" id="export-settings">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    <span data-i18n="storage_export_btn">エクスポート</span>
+                  </button>
+                </div>
+                <div class="nfjk-storage-row">
+                  <div class="nfjk-storage-row-info">
+                    <span class="nfjk-storage-row-title" data-i18n="storage_import">設定をインポート</span>
+                  </div>
+                  <button class="nfjk-storage-action-btn" id="import-settings">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                    <span data-i18n="storage_import_btn">インポート</span>
+                  </button>
+                  <input type="file" id="import-file" accept=".json" class="hidden">
+                </div>
+                <div class="nfjk-storage-row">
+                  <div class="nfjk-storage-row-info">
+                    <span class="nfjk-storage-row-title" data-i18n="storage_reset">設定をリセット</span>
+                    <span class="nfjk-storage-row-desc" data-i18n="storage_reset_desc">全ての設定を初期値に戻します</span>
+                  </div>
+                  <button class="nfjk-storage-action-btn nfjk-storage-action-warn" id="reset-settings">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                    <span data-i18n="storage_reset_btn">リセット</span>
+                  </button>
+                </div>
+                <div class="nfjk-storage-row">
+                  <div class="nfjk-storage-row-info">
+                    <span class="nfjk-storage-row-title" data-i18n="storage_clear">ストレージ初期化</span>
+                    <span class="nfjk-storage-row-desc" data-i18n="storage_clear_desc">全てのデータを完全に削除します</span>
+                  </div>
+                  <button class="nfjk-storage-action-btn nfjk-storage-action-danger" id="clear-storage">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    <span data-i18n="storage_clear_btn">初期化</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- その他・問い合わせ -->
+          <div class="nfjk-accordion" data-section="about">
+            <button class="nfjk-accordion-header">
+              <div class="nfjk-accordion-label">
+                <span class="nfjk-accordion-title" data-i18n="section_about">その他・問い合わせ</span>
+                <span class="nfjk-accordion-preview" id="acc-preview-about"></span>
+              </div>
+              <span class="nfjk-accordion-chevron">▼</span>
+            </button>
+            <div class="nfjk-accordion-content">
+              <div class="nfjk-about-links">
+                <a class="nfjk-about-link" href="https://docs.google.com/forms/d/e/1FAIpQLSfPrQ6TFp5aY2D2FS4rzqZz07qP1wJYT1NUFa53bmxcMJ8aDQ/viewform?usp=sharing&amp;ouid=100536804432513362660" target="_blank" rel="noopener noreferrer">
+                  <span class="nfjk-about-icon nfjk-about-icon-bug">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                  </span>
+                  <div class="nfjk-about-text">
+                    <span class="nfjk-about-title" data-i18n="about_bug_report">不具合の報告</span>
+                    <span class="nfjk-about-desc" data-i18n="about_bug_report_desc">バグや問題を報告する</span>
+                  </div>
+                  <svg class="nfjk-about-external" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </a>
+                <a class="nfjk-about-link" id="privacy-link" href="https://github.com/keigoly/Netflix-Jikkyo/blob/main/PRIVACY_POLICY.en.md" target="_blank" rel="noopener noreferrer">
+                  <span class="nfjk-about-icon nfjk-about-icon-privacy">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                  </span>
+                  <div class="nfjk-about-text">
+                    <span class="nfjk-about-title" data-i18n="about_privacy">プライバシーポリシー</span>
+                    <span class="nfjk-about-desc" data-i18n="about_privacy_desc">個人情報の取り扱いについて</span>
+                  </div>
+                  <svg class="nfjk-about-external" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </a>
+                <a class="nfjk-about-link" href="https://github.com/keigoly/netflix-jikkyo" target="_blank" rel="noopener noreferrer">
+                  <span class="nfjk-about-icon nfjk-about-icon-source">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+                  </span>
+                  <div class="nfjk-about-text">
+                    <span class="nfjk-about-title" data-i18n="about_source">ソースコード</span>
+                    <span class="nfjk-about-desc" data-i18n="about_source_desc">GitHubリポジトリを見る</span>
+                  </div>
+                  <svg class="nfjk-about-external" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </a>
+                <a class="nfjk-about-link" href="https://www.amazon.jp/hz/wishlist/ls/EB28J89CZWVI?ref_=wl_share" target="_blank" rel="noopener noreferrer">
+                  <span class="nfjk-about-icon nfjk-about-icon-support">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                  </span>
+                  <div class="nfjk-about-text">
+                    <span class="nfjk-about-title" data-i18n="about_support">開発者を応援する</span>
+                    <span class="nfjk-about-desc" data-i18n="about_support_desc">Amazon 欲しいものリスト</span>
+                  </div>
+                  <svg class="nfjk-about-external" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </a>
+                <a class="nfjk-about-link" href="https://keigoly.jp/apps/" target="_blank" rel="noopener noreferrer">
+                  <span class="nfjk-about-icon nfjk-about-icon-apps">
+                    <img src="../../public/icons/chrome-icon.png" alt="Chrome" width="20" height="20" style="object-fit: contain;">
+                  </span>
+                  <div class="nfjk-about-text">
+                    <span class="nfjk-about-title" data-i18n="about_extensions">開発者が製作した拡張機能一覧</span>
+                    <span class="nfjk-about-desc" data-i18n="about_extensions_desc">keigoly.jp/apps</span>
+                  </div>
+                  <svg class="nfjk-about-external" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </a>
+                <a class="nfjk-about-link" href="https://keigoly.jp" target="_blank" rel="noopener noreferrer">
+                  <span class="nfjk-about-icon nfjk-about-icon-site">
+                    <img src="../../public/icons/keigoly-logo.png" alt="keigoly" width="20" height="20" style="object-fit: contain;">
+                  </span>
+                  <div class="nfjk-about-text">
+                    <span class="nfjk-about-title" data-i18n="about_website">開発者のオフィシャルサイト</span>
+                    <span class="nfjk-about-desc" data-i18n="about_website_desc">keigoly.jp</span>
+                  </div>
+                  <svg class="nfjk-about-external" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <!-- ログアウト -->
+          <div class="nfjk-settings-signout">
+            <button class="nfjk-signout-btn" id="signout-btn">
+              <svg class="nfjk-signout-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                <polyline points="16 17 21 12 16 7"/>
+                <line x1="21" y1="12" x2="9" y2="12"/>
+              </svg>
+              <div class="nfjk-signout-text">
+                <span class="nfjk-signout-title" data-i18n="signout">ログアウト</span>
+                <span class="nfjk-signout-desc" data-i18n="signout_desc">Googleアカウントとの連携を解除します</span>
+              </div>
+            </button>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- 統計バー -->
+      <div class="stats-bar">
+        <span class="stat-item" id="stat-pace">勢い: 0 コメ/分</span>
+        <span class="stat-item" id="stat-total">累計コメント数: 0</span>
+        <span class="stat-item peer-status" id="peer-status">
+          <span class="status-dot" id="status-dot"></span>
+          <span id="peer-count">0人</span>
+        </span>
+      </div>
+
+      <!-- 新着コメントバナー (統計バーの直下) -->
+      <button class="new-comments-bar hidden" id="new-comments-bar">
+        <span id="new-comments-count">0</span>件の新しいコメント
+      </button>
+
+      <!-- カラムヘッダー -->
+      <div class="col-header">
+        <span class="col-time" data-i18n="col_time">再生時間</span>
+        <span class="col-no" data-i18n="col_no">No</span>
+        <span class="col-user" data-i18n="col_user">ユーザー</span>
+        <span class="col-text" data-i18n="col_comment">コメント</span>
+        <span class="col-date" data-i18n="col_date">書き込み日時</span>
+      </div>
+
+      <!-- コメントリスト -->
+      <div class="comment-list" id="comment-list"></div>
+      <button class="scroll-btn hidden" id="scroll-btn" data-i18n="comment_scroll_btn">↓ 新しいコメント</button>
+
+      <!-- バックドロップ (メニュー/ポップアップの背面) -->
+      <div class="nfjk-backdrop hidden" id="backdrop"></div>
+
+      <!-- オフセットポップアップ -->
+      <div class="nfjk-offset-popup hidden" id="offset-popup">
+        <button class="nfjk-offset-btn" id="offset-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          <span data-i18n="offset_btn">オフセットを合わせる</span>
+        </button>
+      </div>
+
+      <!-- コメントコンテキストメニュー -->
+      <div class="nfjk-ctx-menu hidden" id="ctx-menu">
+        <div class="nfjk-ctx-comment-text" id="ctx-comment-text"></div>
+        <div class="nfjk-ctx-divider"></div>
+        <button class="nfjk-ctx-item" id="ctx-copy-comment">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <div class="nfjk-ctx-item-content">
+            <span class="nfjk-ctx-item-label" data-i18n="ctx_copy_comment">コメントをコピー</span>
+            <span class="nfjk-ctx-item-preview" id="ctx-copy-comment-preview"></span>
+          </div>
+        </button>
+        <button class="nfjk-ctx-item" id="ctx-copy-userid">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          <div class="nfjk-ctx-item-content">
+            <span class="nfjk-ctx-item-label" data-i18n="ctx_copy_userid">ユーザーIDをコピー</span>
+            <span class="nfjk-ctx-item-preview" id="ctx-copy-userid-preview"></span>
+          </div>
+        </button>
+        <div class="nfjk-ctx-divider"></div>
+        <div class="nfjk-ctx-section-label" data-i18n="ctx_ng_section">NG設定</div>
+        <button class="nfjk-ctx-item" id="ctx-ng-comment">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span class="nfjk-ctx-item-label" data-i18n="ctx_ng_add_comment">コメントを追加</span>
+        </button>
+        <button class="nfjk-ctx-item" id="ctx-ng-userid">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <span class="nfjk-ctx-item-label" data-i18n="ctx_ng_add_userid">ユーザーIDを追加</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- コメント入力 -->
+    <div class="input-bar">
+      <input type="text" class="comment-input" id="comment-input" data-i18n-placeholder="input_placeholder" placeholder="コメントを入力... (45文字まで)" maxlength="45">
+      <button class="send-btn" id="send-btn" data-i18n-title="input_send_title" title="送信">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+  <script type="module" src="index.ts"></script>
+</body>
+</html>

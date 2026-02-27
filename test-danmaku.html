@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Netflix Jikkyo - Danmaku Test</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #141414; color: #fff; font-family: "Segoe UI", Arial, sans-serif; }
+
+  .player-mock {
+    position: relative;
+    width: 100%;
+    max-width: 960px;
+    aspect-ratio: 16/9;
+    margin: 40px auto;
+    background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .player-mock::after {
+    content: "Netflix Jikkyo - Danmaku Test";
+    position: absolute;
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 20px;
+    color: rgba(255,255,255,0.15);
+  }
+
+  .nfjk-danmaku {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    max-width: 100%; max-height: 100%;
+    aspect-ratio: 16/9;
+    margin: auto;
+    font-size: 29px;
+    font-family: "Segoe UI", "Yu Gothic", "Meiryo", Arial, sans-serif;
+    color: #fff;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 10;
+  }
+  .nfjk-danmaku-item {
+    display: inline-block;
+    font-weight: bold;
+    font-size: var(--nfjk-danmaku-font-size, 24px);
+    opacity: var(--nfjk-danmaku-opacity, 1);
+    white-space: nowrap;
+    text-shadow: 1.2px 1.2px 4px rgba(0,0,0,0.9);
+    cursor: default;
+    user-select: none;
+    pointer-events: none;
+  }
+  .nfjk-danmaku-item span {
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+  }
+  .nfjk-danmaku-right {
+    position: absolute;
+    right: 0;
+    transform: translateX(100%);
+  }
+  .nfjk-danmaku-right.nfjk-danmaku-move {
+    animation-name: nfjk-danmaku-flow;
+    animation-timing-function: linear;
+    animation-play-state: running;
+  }
+  @keyframes nfjk-danmaku-flow {
+    from { transform: translateX(100%); }
+  }
+
+  .nfjk-danmaku-admin {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    display: flex;
+    justify-content: center;
+    padding: 10px 0;
+    background: linear-gradient(180deg, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.5) 70%, transparent 100%);
+    color: #FFE133;
+    font-size: calc(var(--nfjk-danmaku-font-size, 24px) * 1.15);
+    text-shadow: 0 0 8px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.9);
+    opacity: 0;
+    z-index: 1;
+  }
+  .nfjk-danmaku-admin.nfjk-danmaku-move {
+    animation-name: nfjk-danmaku-admin-show;
+    animation-timing-function: ease-out;
+    animation-play-state: running;
+  }
+  @keyframes nfjk-danmaku-admin-show {
+    0% { opacity: 0; }
+    8% { opacity: 1; }
+    85% { opacity: 1; }
+    100% { opacity: 0; }
+  }
+
+  .controls {
+    max-width: 960px;
+    margin: 0 auto 40px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .controls button {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: opacity 0.2s;
+  }
+  .controls button:hover { opacity: 0.85; }
+  .btn-send { background: #E50914; color: #fff; }
+  .btn-mine { background: #b20710; color: #fff; }
+  .btn-burst { background: #333; color: #fff; border: 1px solid #555 !important; }
+  .controls input[type="text"] {
+    padding: 8px 12px;
+    border: 1px solid #444;
+    border-radius: 4px;
+    background: #222;
+    color: #fff;
+    font-size: 14px;
+    flex: 1;
+    min-width: 200px;
+  }
+  .info {
+    max-width: 960px;
+    margin: 20px auto;
+    color: rgba(255,255,255,0.5);
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<div class="info">弾幕レンダリングのテストページです。ボタンを押すかテキストを入力して送信してください。</div>
+
+<div class="player-mock">
+  <div class="nfjk-danmaku" id="danmaku-container"></div>
+</div>
+
+<div class="controls">
+  <input type="text" id="comment-input" placeholder="コメントを入力..." value="テストコメント">
+  <button class="btn-send" onclick="sendComment()">送信</button>
+  <button class="btn-mine" onclick="sendComment(true)">自分のコメント</button>
+  <button class="btn-burst" onclick="burstComments()">弾幕テスト (20連発)</button>
+</div>
+
+<script>
+const COMMENT_COLOR = '#FFEAEA';
+const container = document.getElementById('danmaku-container');
+const settings = {
+  danmakuSpeedRate: 1.0,
+  danmakuOpacity: 1.0,
+  danmakuFontSize: 24,
+  danmakuEnabled: true,
+  danmakuUnlimited: false,
+};
+
+const danTunnel = {};
+let canvasCtx = null;
+let danFontSize = 24;
+
+function measure(text, fontSize) {
+  if (!canvasCtx || danFontSize !== fontSize) {
+    danFontSize = fontSize;
+    canvasCtx = document.createElement('canvas').getContext('2d');
+    canvasCtx.font = `bold ${danFontSize}px "Segoe UI", Arial`;
+  }
+  return canvasCtx.measureText(text).width;
+}
+
+function draw(item) {
+  const ratioRate = 1.25;
+  let ratio = container.offsetWidth / 1024 * ratioRate;
+  if (ratio >= 1) ratio = 1;
+  const baseFontSize = settings.danmakuFontSize * ratio;
+  const itemHeight = baseFontSize + (6 * ratio);
+  const danWidth = container.offsetWidth;
+  const danHeight = container.offsetHeight;
+  const itemY = danHeight / itemHeight;
+
+  const danItemRight = (el) => {
+    const elWidth = el.offsetWidth || parseInt(el.style.width);
+    const elRight = el.getBoundingClientRect().right || container.getBoundingClientRect().right + elWidth;
+    return container.getBoundingClientRect().right - elRight;
+  };
+  const danSpeed = (w) => (danWidth + w) / 5;
+
+  const getTunnel = (el, width) => {
+    const tmp = danWidth / danSpeed(width);
+    for (let i = 0; settings.danmakuUnlimited || i < itemY; i++) {
+      const it = danTunnel[i + ''];
+      if (it && it.length) {
+        for (let j = 0; j < it.length; j++) {
+          const dr = danItemRight(it[j]) - 10;
+          if (dr <= danWidth - tmp * danSpeed(parseInt(it[j].style.width)) || dr <= 0) break;
+          if (j === it.length - 1) {
+            danTunnel[i + ''].push(el);
+            el.addEventListener('animationend', () => { danTunnel[i + ''].splice(0,1); });
+            return i % itemY;
+          }
+        }
+      } else {
+        danTunnel[i + ''] = [el];
+        el.addEventListener('animationend', () => { danTunnel[i + ''].splice(0,1); });
+        return i % itemY;
+      }
+    }
+    return -1;
+  };
+
+  const itemWidth = measure(item.text, baseFontSize);
+  const el = document.createElement('div');
+  el.classList.add('nfjk-danmaku-item');
+
+  // 管理者コメント (上部中央固定)
+  if (item.mine) {
+    el.classList.add('nfjk-danmaku-admin', 'nfjk-danmaku-move');
+    el.textContent = item.text;
+    el.style.animationDuration = '5s';
+    el.addEventListener('animationend', () => el.remove());
+    container.appendChild(el);
+    container.style.setProperty('--nfjk-danmaku-font-size', `${baseFontSize}px`);
+    return;
+  }
+
+  el.classList.add('nfjk-danmaku-right');
+  el.style.color = COMMENT_COLOR;
+  el.textContent = item.text;
+  el.addEventListener('animationend', () => el.remove());
+
+  const tunnel = getTunnel(el, itemWidth);
+  if (tunnel >= 0) {
+    el.style.width = itemWidth + 1 + 'px';
+    el.style.top = itemHeight * tunnel + 8 + 'px';
+    el.style.transform = `translateX(-${danWidth}px)`;
+    el.style.willChange = 'transform';
+    el.classList.add('nfjk-danmaku-move');
+    el.style.animationDuration = `${5 / settings.danmakuSpeedRate}s`;
+    container.appendChild(el);
+  }
+
+  container.style.setProperty('--nfjk-danmaku-font-size', `${baseFontSize}px`);
+}
+
+const SAMPLE_COMMENTS = [
+  'wwwwww', 'キタ━━━━(ﾟ∀ﾟ)━━━━!!', 'すごい', 'ここ好き',
+  '草', 'かわいい', 'ワロタ', '神回', '泣ける...',
+  '888888', 'それな', 'わかる', 'うぽつ', 'おつおつ',
+  'ナイス!', 'えぇ...', 'マジか', 'ヤバい', 'GJ!', 'ktkr',
+];
+
+function sendComment(mine) {
+  const text = document.getElementById('comment-input').value || 'テスト';
+  draw({ text, mine: !!mine });
+}
+
+function burstComments() {
+  for (let i = 0; i < 20; i++) {
+    setTimeout(() => {
+      const text = SAMPLE_COMMENTS[Math.floor(Math.random() * SAMPLE_COMMENTS.length)];
+      draw({ text });
+    }, i * 150);
+  }
+}
+
+// 初期デモ
+setTimeout(() => draw({ text: 'Netflix Jikkyo 弾幕テスト' }), 500);
+setTimeout(() => draw({ text: 'コメントが右から左に流れます' }), 1000);
+setTimeout(() => draw({ text: 'シンプルな白コメント!' }), 1800);
+</script>
+
+</body>
+</html>

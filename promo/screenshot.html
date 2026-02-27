@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1280">
+<title>Netflix Jikkyo - Store Screenshots</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================== Reset ============================== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { width: 1280px; height: 800px; overflow: hidden; background: #141414; color: #fff; font-family: 'Montserrat', 'Segoe UI', 'Yu Gothic UI', sans-serif; }
+
+/* ============================== Layout ============================== */
+.screenshot-root {
+  display: flex;
+  width: 1280px;
+  height: 800px;
+}
+.player-area {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  background: #000;
+}
+.sidepanel {
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  background: #1a1a1a;
+  border-left: 1px solid #333;
+}
+
+/* ============================== Player Mock ============================== */
+.player-viewport {
+  flex: 1;
+  position: relative;
+  background: url('bg.png') center/85% auto no-repeat black;
+  overflow: hidden;
+}
+/* Subtle cinematic vignette */
+.player-viewport::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at center, transparent 50%, rgba(0,0,0,0.6) 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+/* Faint film grain texture */
+.player-viewport::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.4;
+}
+
+/* ============================== Player Controls ============================== */
+.player-controls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  padding: 40px 20px 12px;
+}
+.progress-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.progress-track {
+  flex: 1;
+  height: 4px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 2px;
+  position: relative;
+}
+.progress-fill {
+  width: 52%;
+  height: 100%;
+  background: #E50914;
+  border-radius: 2px;
+  position: relative;
+}
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  top: -3px;
+  width: 10px;
+  height: 10px;
+  background: #E50914;
+  border-radius: 50%;
+}
+.progress-time {
+  font-size: 12px;
+  color: rgba(255,255,255,0.8);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.controls-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ctrl-btn {
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.9;
+  display: flex;
+  align-items: center;
+  position: relative;
+}
+.ctrl-skip { font-size: 0; }
+.ctrl-skip-label {
+  position: absolute;
+  font-size: 9px;
+  font-weight: 700;
+  top: 52%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  color: #fff;
+  font-family: 'Montserrat', Arial, sans-serif;
+}
+.ctrl-spacer { flex: 1; }
+.ctrl-title {
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.9;
+  letter-spacing: 0.3px;
+}
+.ctrl-right {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+/* ============================== Danmaku (from danmaku.css) ============================== */
+.nfjk-danmaku {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  max-width: 100%; max-height: 100%;
+  aspect-ratio: 16/9;
+  margin: auto;
+  font-size: 29px;
+  font-family: 'Montserrat', "Segoe UI", Arial, sans-serif;
+  color: #fff;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 3;
+}
+.nfjk-danmaku-item {
+  display: inline-block;
+  font-weight: bold;
+  font-size: var(--nfjk-danmaku-font-size, 28px);
+  opacity: var(--nfjk-danmaku-opacity, 1);
+  white-space: nowrap;
+  text-shadow: 1.2px 1.2px 4px rgba(0,0,0,0.9);
+  cursor: default;
+  user-select: none;
+  pointer-events: none;
+}
+.nfjk-danmaku-right {
+  position: absolute;
+  right: 0;
+  transform: translateX(100%);
+}
+.nfjk-danmaku-right.nfjk-danmaku-move {
+  animation-name: nfjk-danmaku-flow;
+  animation-timing-function: linear;
+  animation-play-state: running;
+}
+@keyframes nfjk-danmaku-flow {
+  from { transform: translateX(100%); }
+}
+.nfjk-danmaku-mine {
+  outline: 3px solid rgba(255, 204, 0, 0.85);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+.nfjk-danmaku-admin {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  display: flex;
+  justify-content: center;
+  padding: 10px 0;
+  background: linear-gradient(180deg, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.5) 70%, transparent 100%);
+  color: #FFE133;
+  font-size: calc(var(--nfjk-danmaku-font-size, 28px) * 1.15);
+  text-shadow: 0 0 8px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.9);
+  opacity: 0;
+  z-index: 1;
+}
+.nfjk-danmaku-admin.nfjk-danmaku-move {
+  animation-name: nfjk-danmaku-admin-show;
+  animation-timing-function: ease-out;
+  animation-play-state: running;
+}
+@keyframes nfjk-danmaku-admin-show {
+  0% { opacity: 0; } 8% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; }
+}
+
+/* ============================== Sidepanel ============================== */
+.sp-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  background: #1e1e1e;
+  border-bottom: 1px solid #333;
+  min-height: 40px;
+}
+.sp-header-left { flex: 1; overflow: hidden; }
+.sp-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sp-header-right { display: flex; gap: 6px; }
+.sp-icon-btn {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  background: #2a2a2a;
+  border: 1px solid #555;
+  border-radius: 4px;
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+}
+
+/* Title info */
+.sp-title-info {
+  padding: 8px 12px;
+  border-bottom: 2px solid #E50914;
+}
+.sp-title-info-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.sp-title-info-text { flex: 1; }
+.sp-title-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 2px;
+}
+.sp-title-subtitle {
+  font-size: 12px;
+  color: rgba(255,255,255,0.7);
+  margin-bottom: 4px;
+}
+.sp-title-desc {
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sp-reload-btn {
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  background: none; border: none;
+  color: rgba(255,255,255,0.5);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+/* Stats bar */
+.sp-stats {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 12px;
+  background: #2a2a2a;
+  border-bottom: 1px solid #333;
+  font-size: 11px;
+  color: rgba(255,255,255,0.6);
+}
+.sp-stat-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #64DD17;
+  display: inline-block;
+  margin-right: 4px;
+}
+
+/* Column header */
+.sp-col-header {
+  display: grid;
+  grid-template-columns: 52px 32px 64px 1fr 60px;
+  gap: 0;
+  padding: 4px 10px;
+  background: #2a2a2a;
+  border-bottom: 1px solid #333;
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* Comment list */
+.sp-comments {
+  flex: 1;
+  overflow-y: auto;
+}
+.sp-comment-row {
+  display: grid;
+  grid-template-columns: 52px 32px 64px 1fr 60px;
+  gap: 0;
+  padding: 5px 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  font-size: 12px;
+  align-items: start;
+}
+.sp-comment-row:hover { background: rgba(255,255,255,0.03); }
+.sp-comment-time { color: rgba(255,255,255,0.4); font-size: 10px; font-variant-numeric: tabular-nums; }
+.sp-comment-no { color: rgba(255,255,255,0.3); font-size: 10px; }
+.sp-comment-user { color: rgba(255,255,255,0.6); font-size: 11px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-comment-text { color: #fff; word-break: break-word; line-height: 1.4; }
+.sp-comment-date { color: rgba(255,255,255,0.3); font-size: 10px; }
+.sp-comment-mine .sp-comment-text { color: #FFD54F; }
+
+/* Input bar */
+.sp-input-bar {
+  display: flex;
+  gap: 6px;
+  padding: 8px 10px;
+  background: #2a2a2a;
+  border-top: 1px solid #333;
+}
+.sp-comment-input {
+  flex: 1;
+  height: 30px;
+  padding: 0 10px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 4px;
+  color: #fff;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+.sp-comment-input::placeholder { color: rgba(255,255,255,0.45); }
+.sp-send-btn {
+  width: 30px; height: 30px;
+  display: flex; align-items: center; justify-content: center;
+  background: #E50914;
+  border: none;
+  border-radius: 4px;
+  color: #fff;
+  cursor: pointer;
+}
+
+/* ============================== Netflix Back Button ============================== */
+.nf-back-btn {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  z-index: 6;
+  color: #fff;
+  opacity: 0.9;
+  cursor: pointer;
+}
+</style>
+</head>
+<body>
+
+<div class="screenshot-root">
+  <!-- ==================== Player Area ==================== -->
+  <div class="player-area">
+    <div class="player-viewport">
+      <!-- Back button (Netflix style) -->
+      <div class="nf-back-btn">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+      </div>
+
+      <!-- Danmaku overlay -->
+      <div class="nfjk-danmaku" id="danmaku-container"></div>
+
+      <!-- Player Controls -->
+      <div class="player-controls">
+        <div class="progress-bar">
+          <div class="progress-track"><div class="progress-fill"></div></div>
+          <span class="progress-time">23:45</span>
+        </div>
+        <div class="controls-row">
+          <!-- Play -->
+          <button class="ctrl-btn">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l15 8-15 8z"/></svg>
+          </button>
+          <!-- Back 10s (outlined circular arrow) -->
+          <button class="ctrl-btn ctrl-skip">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M4.5 12.5a8 8 0 1 0 .5-3"/>
+              <path d="M5 4.5V9h4.5"/>
+            </svg>
+            <span class="ctrl-skip-label">10</span>
+          </button>
+          <!-- Forward 10s (outlined circular arrow) -->
+          <button class="ctrl-btn ctrl-skip">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M19.5 12.5a8 8 0 1 1-.5-3"/>
+              <path d="M19 4.5V9h-4.5"/>
+            </svg>
+            <span class="ctrl-skip-label">10</span>
+          </button>
+          <!-- Volume muted -->
+          <button class="ctrl-btn">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
+          </button>
+          <span class="ctrl-title" id="ctrl-title"></span>
+          <span class="ctrl-spacer"></span>
+          <div class="ctrl-right">
+            <!-- Next episode -->
+            <button class="ctrl-btn">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+            </button>
+            <!-- Episodes -->
+            <button class="ctrl-btn">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="2" y="7" width="15" height="14" rx="2"/><path d="M7 3h12a2 2 0 0 1 2 2v12"/>
+              </svg>
+            </button>
+            <!-- Subtitles / Audio -->
+            <button class="ctrl-btn">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H4V6h16v12zM6 10h2v2H6zm0 4h8v2H6zm10 0h2v2h-2zm-6-4h8v2h-8z"/></svg>
+            </button>
+            <!-- Speed -->
+            <button class="ctrl-btn">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 10"/>
+              </svg>
+            </button>
+            <!-- Fullscreen -->
+            <button class="ctrl-btn">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 00-2 2v3m18 0V5a2 2 0 00-2-2h-3m0 18h3a2 2 0 002-2v-3M3 16v3a2 2 0 002 2h3"/></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Sidepanel ==================== -->
+  <div class="sidepanel">
+    <!-- Header -->
+    <div class="sp-header">
+      <div class="sp-header-left">
+        <div class="sp-title" id="sp-title"></div>
+      </div>
+      <div class="sp-header-right">
+        <button class="sp-icon-btn" title="Popout">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+        </button>
+        <button class="sp-icon-btn" title="Settings">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Title info -->
+    <div class="sp-title-info">
+      <div class="sp-title-info-header">
+        <div class="sp-title-info-text">
+          <div class="sp-title-name" id="sp-subtitle"></div>
+          <div class="sp-title-subtitle" id="sp-episode"></div>
+        </div>
+        <button class="sp-reload-btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+          </svg>
+        </button>
+      </div>
+      <div class="sp-title-desc" id="sp-desc"></div>
+    </div>
+
+    <!-- Stats bar -->
+    <div class="sp-stats">
+      <span><span class="sp-stat-dot"></span><span id="sp-peers"></span></span>
+      <span id="sp-pace"></span>
+      <span id="sp-total"></span>
+    </div>
+
+    <!-- Column header -->
+    <div class="sp-col-header">
+      <span id="col-time"></span>
+      <span id="col-no"></span>
+      <span id="col-user"></span>
+      <span id="col-comment"></span>
+      <span id="col-date"></span>
+    </div>
+
+    <!-- Comment list -->
+    <div class="sp-comments" id="sp-comments"></div>
+
+    <!-- Input bar -->
+    <div class="sp-input-bar">
+      <input class="sp-comment-input" id="sp-input" readonly>
+      <button class="sp-send-btn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================== i18n Data ==============================
+const LANG = new URLSearchParams(location.search).get('lang') || 'ja';
+
+const I18N = {
+  ja: {
+    panelTitle: 'COSMIC HORIZON',
+    subtitle: 'COSMIC HORIZON',
+    episode: '第3話 新たなる旅立ち',
+    desc: '宇宙の果てで目覚めた主人公は、見知らぬ惑星で仲間と出会い、銀河を揺るがす陰謀に巻き込まれていく。',
+    peers: '5人', pace: '勢い: 24 コメ/分', total: '累計: 847',
+    colTime: '再生時間', colNo: 'No', colUser: 'ユーザー', colComment: 'コメント', colDate: '日時',
+    inputPlaceholder: 'コメントを入力... (45文字まで)',
+    csPlaceholder: 'コメントを入力...',
+    csSend: '送信',
+    csPeers: '5人',
+    ctrlTitle: 'COSMIC HORIZON - S1:E3',
+    danmaku: [
+      'ｷﾀ━━━━(ﾟ∀ﾟ)━━━━!!', 'wwwwwwww', '草', '神回', 'ここすき',
+      '888888', '泣ける', 'かわいい', 'えぇ…', 'ワロタ',
+      'マジかよ', 'すげえ', 'おおおおお', 'きたああああ', '鳥肌',
+      'それな', 'わかる', 'やばい', 'なるほど', '最高すぎる',
+      'まさかの展開', '伏線回収', '声出た', 'これは熱い',
+    ],
+    myComment: 'これ神展開じゃん',
+    comments: [
+      { t: '22:31', n: 'ゲスト', c: '888888888', no: 831 },
+      { t: '22:45', n: '深夜勢', c: 'きたああああ', no: 832 },
+      { t: '22:48', n: 'アニメ民', c: 'やばい', no: 833 },
+      { t: '22:52', n: 'ねこ好き', c: 'かわいい', no: 834 },
+      { t: '23:01', n: '実況民', c: '鳥肌やば', no: 835 },
+      { t: '23:05', n: '通りすがり', c: 'ここの演出すごくない？', no: 836 },
+      { t: '23:10', n: '初見', c: 'まさかの展開', no: 837 },
+      { t: '23:12', n: 'ぺんぎん', c: 'えぇ…', no: 838 },
+      { t: '23:15', n: '古参', c: '伏線回収', no: 839, mine: true },
+      { t: '23:18', n: '雑食オタク', c: 'これは熱い', no: 840 },
+      { t: '23:20', n: 'わんこ', c: 'おおおおお', no: 841 },
+      { t: '23:25', n: '夜更かし民', c: '神回', no: 842 },
+      { t: '23:30', n: '映画好き', c: 'マジかよ', no: 843 },
+      { t: '23:35', n: '感想屋', c: '声出た', no: 844 },
+      { t: '23:40', n: 'ガチ勢', c: 'これ神展開じゃん', no: 845, mine: true },
+    ],
+  },
+  en: {
+    panelTitle: 'COSMIC HORIZON',
+    subtitle: 'COSMIC HORIZON',
+    episode: 'S1:E3 "A New Dawn"',
+    desc: 'Awakening at the edge of the universe, our hero encounters allies on an unknown planet and is drawn into a galaxy-shaking conspiracy.',
+    peers: '5 peers', pace: 'Pace: 24 comments/min', total: 'Total: 847',
+    colTime: 'Time', colNo: 'No', colUser: 'User', colComment: 'Comment', colDate: 'Date',
+    inputPlaceholder: 'Type a comment... (max 45 chars)',
+    csPlaceholder: 'Type a comment...',
+    csSend: 'Send',
+    csPeers: '5 peers',
+    ctrlTitle: 'COSMIC HORIZON - S1:E3',
+    danmaku: [
+      'LOL', 'no way', 'this is insane', 'goated', 'lets gooo',
+      'W', 'bruh', 'clutch', 'OMG', 'sheesh',
+      'POGGERS', 'no shot', 'actually insane', 'wait what', 'holy',
+      'fire', 'based', 'WTF', 'huge W', 'yooo',
+      'HE DID IT', 'common W', 'literally me', 'crying rn',
+    ],
+    myComment: 'this is so good',
+    comments: [
+      { t: '22:31', n: 'viewer42', c: 'lets gooo', no: 831 },
+      { t: '22:45', n: 'nightowl', c: 'POGGERS', no: 832 },
+      { t: '22:48', n: 'chill_dude', c: 'no way', no: 833 },
+      { t: '22:52', n: 'anime_fan', c: 'clutch', no: 834 },
+      { t: '23:01', n: 'lurker', c: 'goated', no: 835 },
+      { t: '23:05', n: 'react_andy', c: 'this is insane', no: 836 },
+      { t: '23:10', n: 'normie', c: 'wait what', no: 837 },
+      { t: '23:12', n: 'binge_lord', c: 'OMG', no: 838 },
+      { t: '23:15', n: 'coolguy99', c: 'this is so good', no: 839, mine: true },
+      { t: '23:18', n: 'degen', c: 'fire', no: 840 },
+      { t: '23:20', n: 'popcorn_time', c: 'yooo', no: 841 },
+      { t: '23:25', n: 'just_chatting', c: 'huge W', no: 842 },
+      { t: '23:30', n: 'sub_only', c: 'WTF', no: 843 },
+      { t: '23:35', n: 'tier3sub', c: 'crying rn', no: 844 },
+      { t: '23:40', n: 'dankMemer', c: 'HE DID IT', no: 845 },
+    ],
+  },
+  ko: {
+    panelTitle: 'COSMIC HORIZON',
+    subtitle: 'COSMIC HORIZON',
+    episode: '시즌1 3화 "새로운 여명"',
+    desc: '우주 끝에서 깨어난 주인공은 미지의 행성에서 동료를 만나 은하계를 뒤흔드는 음모에 휘말리게 된다.',
+    peers: '5명', pace: '속도: 24 댓글/분', total: '총: 847',
+    colTime: '재생시간', colNo: 'No', colUser: '사용자', colComment: '댓글', colDate: '작성일시',
+    inputPlaceholder: '댓글을 입력... (최대 45자)',
+    csPlaceholder: '댓글을 입력...',
+    csSend: '전송',
+    csPeers: '5명',
+    ctrlTitle: 'COSMIC HORIZON - S1:E3',
+    danmaku: [
+      'ㅋㅋㅋㅋ', '대박', '미쳤다', '레전드', '소름',
+      '888888', 'ㄹㅇ', '진짜', '대박사건', 'ㅎㄷㄷ',
+      '와', '개쩐다', '헐', '실화냐', '존잘',
+      '눈물난다', '소름돋았다', '미친', '와 이거', '역대급',
+      '이건 좀', '최고다', 'gg', '갓',
+    ],
+    myComment: '이건 신의 한수',
+    comments: [
+      { t: '22:31', n: '시청자42', c: '888888', no: 831 },
+      { t: '22:45', n: '야행성', c: '대박', no: 832 },
+      { t: '22:48', n: '힐링중', c: '미쳤다', no: 833 },
+      { t: '22:52', n: '애니팬', c: '소름', no: 834 },
+      { t: '23:01', n: '잠수부', c: '레전드', no: 835 },
+      { t: '23:05', n: '리액션왕', c: '실화냐', no: 836 },
+      { t: '23:10', n: '뉴비', c: '헐', no: 837 },
+      { t: '23:12', n: '몰아보기', c: 'ㅋㅋㅋㅋ', no: 838 },
+      { t: '23:15', n: '쿨가이', c: '이건 신의 한수', no: 839, mine: true },
+      { t: '23:18', n: '덕후', c: '개쩐다', no: 840 },
+      { t: '23:20', n: '팝콘', c: '와', no: 841 },
+      { t: '23:25', n: '잡담중', c: '역대급', no: 842 },
+      { t: '23:30', n: '구독자', c: '진짜', no: 843 },
+      { t: '23:35', n: '오래된팬', c: '눈물난다', no: 844 },
+      { t: '23:40', n: '밈장인', c: '존잘', no: 845 },
+    ],
+  },
+  cs: {
+    panelTitle: 'COSMIC HORIZON',
+    subtitle: 'COSMIC HORIZON',
+    episode: 'S1:E3 "Nový svítání"',
+    desc: 'Hrdina se probouzí na okraji vesmíru, na neznámé planetě potkává spojence a je vtažen do spiknutí, které otřásá celou galaxií.',
+    peers: '5 účastníků', pace: 'Tempo: 24 komentářů/min', total: 'Celkem: 847',
+    colTime: 'Čas', colNo: 'Č.', colUser: 'Uživatel', colComment: 'Komentář', colDate: 'Datum',
+    inputPlaceholder: 'Napsat komentář... (max 45 znaků)',
+    csPlaceholder: 'Napsat komentář...',
+    csSend: 'Odeslat',
+    csPeers: '5 účast.',
+    ctrlTitle: 'COSMIC HORIZON - S1:E3',
+    danmaku: [
+      'haha', 'to je šílené', 'legendární', 'neskutečné', 'wow',
+      '888888', 'super', 'LOL', 'pecka', 'hustý',
+      'tohle je úžasné', 'ne', 'jak', 'paráda', 'boží',
+      'krása', 'co to je', 'bomba', 'mega', 'síla',
+      'bože', 'fakt?', 'top', 'gg',
+    ],
+    myComment: 'tohle je geniální',
+    comments: [
+      { t: '22:31', n: 'divak42', c: '888888', no: 831 },
+      { t: '22:45', n: 'nocsova', c: 'legendární', no: 832 },
+      { t: '22:48', n: 'pohodak', c: 'to je šílené', no: 833 },
+      { t: '22:52', n: 'anime_cz', c: 'wow', no: 834 },
+      { t: '23:01', n: 'lurker', c: 'neskutečné', no: 835 },
+      { t: '23:05', n: 'react_cz', c: 'tohle je úžasné', no: 836 },
+      { t: '23:10', n: 'novic', c: 'jak', no: 837 },
+      { t: '23:12', n: 'marathon', c: 'haha', no: 838 },
+      { t: '23:15', n: 'cool99', c: 'tohle je geniální', no: 839, mine: true },
+      { t: '23:18', n: 'geek_cz', c: 'pecka', no: 840 },
+      { t: '23:20', n: 'popkorn', c: 'super', no: 841 },
+      { t: '23:25', n: 'chatter', c: 'mega', no: 842 },
+      { t: '23:30', n: 'subik', c: 'fakt?', no: 843 },
+      { t: '23:35', n: 'stary_fan', c: 'krása', no: 844 },
+      { t: '23:40', n: 'memer', c: 'boží', no: 845 },
+    ],
+  },
+  'zh-TW': {
+    panelTitle: 'COSMIC HORIZON',
+    subtitle: 'COSMIC HORIZON',
+    episode: '第1季第3集「全新的黎明」',
+    desc: '主角在宇宙盡頭甦醒，在未知星球上與夥伴相遇，捲入一場撼動銀河的陰謀之中。',
+    peers: '5 人', pace: '熱度: 24 留言/分', total: '累計: 847',
+    colTime: '播放時間', colNo: 'No', colUser: '使用者', colComment: '留言', colDate: '發表時間',
+    inputPlaceholder: '輸入留言…（最多 45 字）',
+    csPlaceholder: '輸入留言…',
+    csSend: '發送',
+    csPeers: '5 人',
+    ctrlTitle: 'COSMIC HORIZON - S1:E3',
+    danmaku: [
+      '哈哈哈', '太神了', '好可愛', '笑死', '888888',
+      '淚目', '太強了', '神回', '傳說', '有夠扯',
+      'www', '真的假的', '好猛', '我哭了', '超好看',
+      '太帥了', '鳥肌', '天啊', '神展開', '厲害',
+      '不可能', '太感動了', '好燃', '絕了',
+    ],
+    myComment: '這根本神作',
+    comments: [
+      { t: '22:31', n: '觀眾42', c: '888888', no: 831 },
+      { t: '22:45', n: '夜貓族', c: '太神了', no: 832 },
+      { t: '22:48', n: '悠閒派', c: '笑死', no: 833 },
+      { t: '22:52', n: '動漫迷', c: '好可愛', no: 834 },
+      { t: '23:01', n: '潛水員', c: '傳說', no: 835 },
+      { t: '23:05', n: '反應王', c: '有夠扯', no: 836 },
+      { t: '23:10', n: '新手', c: '真的假的', no: 837 },
+      { t: '23:12', n: '追劇狂', c: '哈哈哈', no: 838 },
+      { t: '23:15', n: '帥哥99', c: '這根本神作', no: 839, mine: true },
+      { t: '23:18', n: '宅宅', c: '好猛', no: 840 },
+      { t: '23:20', n: '爆米花', c: '太帥了', no: 841 },
+      { t: '23:25', n: '聊天中', c: '神展開', no: 842 },
+      { t: '23:30', n: '訂閱者', c: '天啊', no: 843 },
+      { t: '23:35', n: '老粉', c: '太感動了', no: 844 },
+      { t: '23:40', n: '迷因王', c: '絕了', no: 845 },
+    ],
+  },
+};
+
+const data = I18N[LANG] || I18N.ja;
+
+// ============================== Populate UI Text ==============================
+document.getElementById('sp-title').textContent = data.panelTitle;
+document.getElementById('sp-subtitle').textContent = data.subtitle;
+document.getElementById('sp-episode').textContent = data.episode;
+document.getElementById('sp-desc').textContent = data.desc;
+document.getElementById('sp-peers').textContent = data.peers;
+document.getElementById('sp-pace').textContent = data.pace;
+document.getElementById('sp-total').textContent = data.total;
+document.getElementById('col-time').textContent = data.colTime;
+document.getElementById('col-no').textContent = data.colNo;
+document.getElementById('col-user').textContent = data.colUser;
+document.getElementById('col-comment').textContent = data.colComment;
+document.getElementById('col-date').textContent = data.colDate;
+document.getElementById('sp-input').placeholder = data.inputPlaceholder;
+document.getElementById('ctrl-title').textContent = data.ctrlTitle;
+
+// ============================== Comment List ==============================
+const commentsEl = document.getElementById('sp-comments');
+const today = new Date();
+const dateStr = `${today.getMonth()+1}/${today.getDate()}`;
+
+for (const c of data.comments) {
+  const row = document.createElement('div');
+  row.className = 'sp-comment-row' + (c.mine ? ' sp-comment-mine' : '');
+  row.innerHTML = [
+    `<span class="sp-comment-time">${c.t}</span>`,
+    `<span class="sp-comment-no">${c.no}</span>`,
+    `<span class="sp-comment-user">${c.n}</span>`,
+    `<span class="sp-comment-text">${c.c}</span>`,
+    `<span class="sp-comment-date">${dateStr}</span>`,
+  ].join('');
+  commentsEl.appendChild(row);
+}
+
+// Scroll to bottom
+commentsEl.scrollTop = commentsEl.scrollHeight;
+
+// ============================== Danmaku Engine ==============================
+const container = document.getElementById('danmaku-container');
+let canvasCtx = null;
+let danFontSize = 0;
+
+function measure(text, fontSize) {
+  if (!canvasCtx || danFontSize !== fontSize) {
+    danFontSize = fontSize;
+    canvasCtx = document.createElement('canvas').getContext('2d');
+    canvasCtx.font = `bold ${danFontSize}px 'Montserrat', "Segoe UI", Arial`;
+  }
+  return canvasCtx.measureText(text).width;
+}
+
+// スクショ向け: トンネル衝突検知を省略し、ランダムY座標に配置
+function draw(item, forceRow) {
+  const ratio = container.offsetWidth / 1920;
+  const baseFontSize = 40 * ratio;
+  const itemHeight = baseFontSize + (6 * ratio);
+  const danWidth = container.offsetWidth;
+  const danHeight = container.offsetHeight;
+  const maxRows = Math.floor((danHeight - 80) / itemHeight); // コントロール分80px引く
+
+  const itemWidth = measure(item.text, baseFontSize);
+  const el = document.createElement('div');
+  el.classList.add('nfjk-danmaku-item', 'nfjk-danmaku-right');
+  if (item.mine) el.classList.add('nfjk-danmaku-mine');
+  el.style.color = '#FFFFFF';
+  el.textContent = item.text;
+  el.addEventListener('animationend', () => el.remove());
+
+  const row = forceRow !== undefined ? forceRow : Math.floor(Math.random() * maxRows);
+  el.style.width = itemWidth + 1 + 'px';
+  el.style.top = itemHeight * row + 8 + 'px';
+  el.style.transform = `translateX(-${danWidth}px)`;
+  el.style.willChange = 'transform';
+  el.classList.add('nfjk-danmaku-move');
+  // ランダムな速度で自然な流れを演出 (6〜9秒)
+  el.style.animationDuration = (6 + Math.random() * 3) + 's';
+  container.appendChild(el);
+  container.style.setProperty('--nfjk-danmaku-font-size', `${baseFontSize}px`);
+}
+
+// ============================== Auto-fire danmaku ==============================
+const allDanmaku = [...data.danmaku];
+// Shuffle
+for (let i = allDanmaku.length - 1; i > 0; i--) {
+  const j = Math.floor(Math.random() * (i + 1));
+  [allDanmaku[i], allDanmaku[j]] = [allDanmaku[j], allDanmaku[i]];
+}
+
+let idx = 0;
+function fireNext(forceRow) {
+  if (idx >= allDanmaku.length) idx = 0;
+  draw({ text: allDanmaku[idx] }, forceRow);
+  idx++;
+}
+
+// 画面埋め尽くしモード: 全行に一斉配置 + 継続的に高頻度投入
+setTimeout(() => {
+  const ratio = container.offsetWidth / 1920;
+  const baseFontSize = 40 * ratio;
+  const itemHeight = baseFontSize + (6 * ratio);
+  const danHeight = container.offsetHeight;
+  const maxRows = Math.floor((danHeight - 100) / itemHeight);
+
+  // Phase 1: 全行を埋める (各行に3個ずつ、時間差で配置)
+  for (let row = 0; row < maxRows; row++) {
+    setTimeout(() => fireNext(row), row * 20);
+    setTimeout(() => fireNext(row), row * 20 + 300 + Math.random() * 400);
+    setTimeout(() => fireNext(row), row * 20 + 800 + Math.random() * 500);
+  }
+
+  // Phase 2: 大量ランダム散布 (60個)
+  for (let i = 0; i < 60; i++) {
+    setTimeout(() => fireNext(), 800 + i * 40);
+  }
+
+  // Phase 3: 自分のコメント (画面中央あたり)
+  setTimeout(() => draw({ text: data.myComment, mine: true }, Math.floor(maxRows * 0.4)), 2000);
+
+  // Phase 4: さらに散布 (50個)
+  for (let i = 0; i < 50; i++) {
+    setTimeout(() => fireNext(), 2500 + i * 50);
+  }
+
+  // Ongoing: 超高頻度ランダム投入 (80〜200ms間隔)
+  setInterval(() => fireNext(), 80 + Math.random() * 120);
+}, 200);
+</script>
+
+</body>
+</html>

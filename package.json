@@ -1,0 +1,24 @@
+{
+  "name": "netflix-jikkyo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Netflix用P2Pサーバーレス実況Chrome拡張機能",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build && node scripts/build-content.mjs",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "idb": "^8.0.2",
+    "trystero": "^0.20.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.30",
+    "@types/chrome": "^0.0.304",
+    "@types/uuid": "^10.0.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0"
+  }
+}

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+*.log
+
+# Secrets
+client_secret_*.json
+*.pem
+
+# IDE / Tools
+.serena/
+
+# Internal docs
+docs/live-relay-operations.md
+CLAUDE.md
+netflix-jikkyo-v1.0.0.zip
