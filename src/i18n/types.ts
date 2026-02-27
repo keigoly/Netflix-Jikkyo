@@ -191,6 +191,10 @@ export interface TranslationKeys {
   weekday_fri: string;
   weekday_sat: string;
 
+  // --- SNSシェア ---
+  sns_share_text: string;
+  sns_share_content: string;
+
   // --- コンテンツスクリプトUI ---
   cs_input_placeholder: string;
   cs_send: string;

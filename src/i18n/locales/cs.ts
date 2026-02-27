@@ -186,6 +186,10 @@ const cs: TranslationKeys = {
   weekday_fri: 'Pá',
   weekday_sat: 'So',
 
+  // --- Sdílení na sociálních sítích ---
+  sns_share_text: 'Sdílejte prosím na sociálních sítích!',
+  sns_share_content: '#NetflixJikkyo - Sledujte Netflix s živými komentáři!\nRozšíření pro Chrome s komentáři ve stylu Niconico!\nVyzkoušejte → ',
+
   // --- UI obsahového skriptu ---
   cs_input_placeholder: 'Napsat komentář...',
   cs_send: 'Odeslat',

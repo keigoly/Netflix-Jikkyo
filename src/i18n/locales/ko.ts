@@ -186,6 +186,10 @@ const ko: TranslationKeys = {
   weekday_fri: '금',
   weekday_sat: '토',
 
+  // --- SNS 공유 ---
+  sns_share_text: 'SNS에서 공유해 주세요!',
+  sns_share_content: '#넷플릭스실황 - Netflix에서 다 같이 댓글을 달자!\n니코니코 스타일의 탄막 댓글을 즐길 수 있는 Chrome 확장 프로그램!\n한번 사용해 보세요 → ',
+
   // --- 콘텐츠 스크립트 UI ---
   cs_input_placeholder: '댓글을 입력...',
   cs_send: '전송',

@@ -186,6 +186,10 @@ const zhTW: TranslationKeys = {
   weekday_fri: '五',
   weekday_sat: '六',
 
+  // --- SNS 分享 ---
+  sns_share_text: '請在社群媒體上分享！',
+  sns_share_content: '#Netflix實況 - 一起在Netflix上留言吧！\n享受niconico風格彈幕留言的Chrome擴充功能！\n歡迎試用 → ',
+
   // --- 內容腳本 UI ---
   cs_input_placeholder: '輸入留言…',
   cs_send: '送出',

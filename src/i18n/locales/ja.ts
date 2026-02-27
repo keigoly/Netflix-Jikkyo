@@ -187,6 +187,10 @@ const ja: TranslationKeys = {
   weekday_fri: '金',
   weekday_sat: '土',
 
+  // --- SNSシェア ---
+  sns_share_text: 'SNSでのシェアのほどよろしくお願いします！',
+  sns_share_content: '#ネトフリで実況 - Netflixでみんなとコメントしよう！\nニコニコ風のコメントが楽しめるChrome拡張機能！\n是非一度お試しください → ',
+
   // --- コンテンツスクリプトUI ---
   cs_input_placeholder: 'コメントを入力...',
   cs_send: '送信',

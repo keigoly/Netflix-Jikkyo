@@ -1812,6 +1812,7 @@ async function initMainUI(): Promise<void> {
     statTotal.textContent = t('stat_total', { count: totalComments });
     if (commentCount === 0) showEmpty();
     document.documentElement.lang = getLocale();
+    setupSnsShareLinks();
   });
 
   if (isPopout) {
@@ -2148,6 +2149,42 @@ ctxNgUserId.addEventListener('click', async () => {
     closeCtxMenu();
   }, 800);
 });
+
+// --- SNSシェア ---
+
+const SNS_SHARE_URL = 'https://bit.ly/4rDnBXM';
+
+function setupSnsShareLinks(): void {
+  const shareText = t('sns_share_content');
+  const shareFull = `${shareText}${SNS_SHARE_URL}`;
+  const encodedFull = encodeURIComponent(shareFull);
+  const encodedUrl = encodeURIComponent(SNS_SHARE_URL);
+  const encodedText = encodeURIComponent(shareText);
+
+  const xUrl = `https://x.com/intent/tweet?text=${encodedFull}`;
+  const lineUrl = `https://social-plugins.line.me/lineit/share?url=${encodedUrl}&text=${encodedFull}`;
+  const fbUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}`;
+  const threadsUrl = `https://www.threads.net/intent/post?text=${encodedFull}`;
+  const redditUrl = `https://www.reddit.com/submit?url=${encodedUrl}&title=${encodedText}`;
+
+  const suffixes = ['auth', 'nonetflix', 'settings'];
+  for (const s of suffixes) {
+    const xEl = document.getElementById(`sns-x-${s}`);
+    const lineEl = document.getElementById(`sns-line-${s}`);
+    const fbEl = document.getElementById(`sns-fb-${s}`);
+    const threadsEl = document.getElementById(`sns-threads-${s}`);
+    const redditEl = document.getElementById(`sns-reddit-${s}`);
+    const chromeEl = document.getElementById(`sns-chrome-${s}`);
+    if (xEl) xEl.setAttribute('href', xUrl);
+    if (lineEl) lineEl.setAttribute('href', lineUrl);
+    if (fbEl) fbEl.setAttribute('href', fbUrl);
+    if (threadsEl) threadsEl.setAttribute('href', threadsUrl);
+    if (redditEl) redditEl.setAttribute('href', redditUrl);
+    if (chromeEl) chromeEl.setAttribute('href', SNS_SHARE_URL);
+  }
+}
+
+setupSnsShareLinks();
 
 // --- 初期化 ---
 

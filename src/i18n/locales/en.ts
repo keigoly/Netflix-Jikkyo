@@ -186,6 +186,10 @@ const en: TranslationKeys = {
   weekday_fri: 'Fri',
   weekday_sat: 'Sat',
 
+  // --- SNS share ---
+  sns_share_text: 'Please share on social media!',
+  sns_share_content: '#NetflixJikkyo - Watch Netflix with live comments!\nA Chrome extension for Niconico-style bullet comments on Netflix!\nGive it a try → ',
+
   // --- Content script UI ---
   cs_input_placeholder: 'Type a comment...',
   cs_send: 'Send',
