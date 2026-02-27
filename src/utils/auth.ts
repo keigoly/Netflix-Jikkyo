@@ -80,11 +80,17 @@ export async function signInWithGoogle(): Promise<AuthState> {
     onboardingCompleted: false,
   };
 
-  // 既存のAuthStateがあればnicknameChangedAtとonboardingCompletedを引き継ぐ
+  // 既存のAuthState or ログアウト時の保存状態から引き継ぐ
   const existing = await loadAuthState();
   if (existing.user?.googleId === authState.user!.googleId) {
     authState.nicknameChangedAt = existing.nicknameChangedAt;
     authState.onboardingCompleted = existing.onboardingCompleted;
+  } else {
+    const logoutState = await loadLogoutState(authState.user!.googleId);
+    if (logoutState) {
+      authState.nicknameChangedAt = logoutState.nicknameChangedAt;
+      authState.onboardingCompleted = logoutState.onboardingCompleted;
+    }
   }
 
   await saveAuthState(authState);
@@ -103,7 +109,41 @@ export async function signOut(): Promise<void> {
     }
   }
 
+  // ニックネーム変更日時とオンボーディング状態を保持（再ログイン時に引き継ぐため）
+  if (authState.user?.googleId) {
+    await saveLogoutState(authState.user.googleId, {
+      nicknameChangedAt: authState.nicknameChangedAt,
+      onboardingCompleted: authState.onboardingCompleted,
+    });
+  }
+
   await saveAuthState({ ...DEFAULT_AUTH_STATE });
+}
+
+const LOGOUT_STATE_KEY = 'logoutState';
+
+interface LogoutState {
+  nicknameChangedAt: string | null;
+  onboardingCompleted: boolean;
+}
+
+async function saveLogoutState(googleId: string, state: LogoutState): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.storage.local.set({ [LOGOUT_STATE_KEY]: { googleId, ...state } }, resolve);
+  });
+}
+
+export async function loadLogoutState(googleId: string): Promise<LogoutState | null> {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(LOGOUT_STATE_KEY, (result) => {
+      const saved = result[LOGOUT_STATE_KEY];
+      if (saved?.googleId === googleId) {
+        resolve({ nicknameChangedAt: saved.nicknameChangedAt, onboardingCompleted: saved.onboardingCompleted });
+      } else {
+        resolve(null);
+      }
+    });
+  });
 }
 
 // --- ニックネームバリデーション ---
@@ -183,7 +223,12 @@ export function canChangeNickname(authState: AuthState): ChangeNicknameResult {
 export async function changeNickname(name: string): Promise<void> {
   const trimmed = name.trim();
 
-  // Settings.nickname 更新
+  const authState = await loadAuthState();
+  const status = canChangeNickname(authState);
+  if (!status.canChange) {
+    throw new Error(t('user_nickname_remaining', { days: status.remainingDays ?? 0 }));
+  }
+
   const settings = await new Promise<Settings>((resolve) => {
     chrome.storage.sync.get('settings', (result) => {
       resolve(result.settings ? { ...DEFAULT_SETTINGS, ...result.settings } : { ...DEFAULT_SETTINGS });
@@ -194,8 +239,6 @@ export async function changeNickname(name: string): Promise<void> {
     chrome.storage.sync.set({ settings }, resolve);
   });
 
-  // AuthState.nicknameChangedAt 更新
-  const authState = await loadAuthState();
   authState.nicknameChangedAt = new Date().toISOString();
   await saveAuthState(authState);
 }

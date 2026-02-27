@@ -229,6 +229,13 @@ async function initSettings(): Promise<void> {
 
   // 「保存」ボタン
   nicknameSaveBtn.addEventListener('click', async () => {
+    const currentStatus = canChangeNickname(await loadAuthState());
+    if (!currentStatus.canChange) {
+      nicknameInput.disabled = true;
+      nicknameHint.textContent = t('user_nickname_remaining', { days: currentStatus.remainingDays ?? 0 });
+      nicknameSaveBtn.classList.add('hidden');
+      return;
+    }
     const validation = validateNickname(nicknameInput.value);
     if (!validation.valid) {
       nicknameHint.textContent = validation.error!;
