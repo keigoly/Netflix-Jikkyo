@@ -7,7 +7,7 @@
 <p align="center"><strong>Netflix でみんなとコメントしよう</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.1-E50914" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.0.2-E50914" alt="Version">
   <img src="https://img.shields.io/badge/license-BSL--1.1-blue" alt="License">
   <a href="https://github.com/keigoly/netflix-jikkyo/stargazers"><img src="https://img.shields.io/github/stars/keigoly/netflix-jikkyo?style=social" alt="Stars"></a>
 </p>
@@ -18,13 +18,16 @@ Netflix Jikkyo は、Netflix の視聴画面にニコニコ風のコメントを
 
 - サーバーを使わない P2P 通信だから、コメントデータが外部に保存されることはありません
 - インストールするだけ。設定不要で、すぐに使い始められます
+- Netflix ライブ配信にも対応
 
 ## 機能
 
 - **弾幕コメント** — 画面を流れるコメントで、みんなとリアルタイムに実況
+- **ライブ配信対応** — Netflix のライブイベントでもリアルタイム実況が可能
+- **ニコニコ連携** — ニコニコ生放送のコメントを Netflix 画面に表示
 - **サイドパネル** — コメント一覧・作品情報をサイドバーで確認
 - **NG フィルター** — 見たくないコメントやユーザーをブロック
-- **多言語対応** — 日本語 / English / 한국어 / Ceština / 繁體中文
+- **多言語対応** — 日本語 / English / 한국어 / Čeština / 繁體中文
 - **カスタマイズ** — 速度・透明度・フォント・サイズを自由に調整
 - **ポップアウト** — サイドパネルを独立ウィンドウに切り離し
 
