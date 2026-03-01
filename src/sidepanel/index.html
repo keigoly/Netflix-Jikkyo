@@ -185,6 +185,22 @@
                 </div>
                 <p class="nfjk-nickname-hint" id="nickname-hint" data-i18n="user_nickname_hint">3〜18文字 / 変更は30日に1回</p>
               </div>
+              <!-- 外部サイト連携 -->
+              <div class="nfjk-external-section">
+                <span class="nfjk-external-section-label">外部サイト連携</span>
+              </div>
+              <!-- ニコ生連携 -->
+              <div class="nfjk-nico-link-row" id="nico-link-row">
+                <div class="nfjk-nico-link-left">
+                  <img class="nfjk-nico-icon" src="../../public/icons/niconico.png" alt="" width="14" height="14">
+                  <span class="nfjk-nico-link-label" data-i18n="section_nico">ニコ生連携</span>
+                  <span class="nfjk-nico-status-dot" id="nico-status-dot"></span>
+                </div>
+                <div class="nfjk-nico-link-right">
+                  <button class="nfjk-nico-comment-toggle hidden" id="nico-comment-toggle" data-i18n="nico_comments_on">コメントON</button>
+                  <button class="nfjk-nico-connect-btn" id="nico-connect-btn" data-i18n="nico_connect_btn">連携する</button>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -593,6 +609,7 @@
         <span class="stat-item peer-status" id="peer-status">
           <span class="status-dot" id="status-dot"></span>
           <span id="peer-count">0人</span>
+          <span class="nfjk-nico-viewer-count hidden" id="nico-viewer-count" data-i18n-title="nico_viewer_count_title" title="ニコ生視聴者数"></span>
         </span>
       </div>
 

@@ -10,6 +10,7 @@ client_secret_*.json
 .serena/
 
 # Internal docs
-docs/live-relay-operations.md
+docs/
 CLAUDE.md
 netflix-jikkyo-v1.0.0.zip
+netflix-jikkyo-v1.0.1.zip

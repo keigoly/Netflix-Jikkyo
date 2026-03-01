@@ -186,6 +186,27 @@ const ko: TranslationKeys = {
   weekday_fri: '금',
   weekday_sat: '토',
 
+  // --- 니코생 연동 ---
+  section_nico: '니코생 연동',
+  nico_connect_btn: '연동하기',
+  nico_disconnect_btn: '해제하기',
+  nico_preview_disconnected: '미연결',
+  nico_preview_connecting: '연결 중...',
+  nico_preview_connected: '연결됨',
+  nico_preview_error: '오류',
+  nico_account_status: '니코니코 계정:',
+  nico_account_logged_in: '로그인됨',
+  nico_account_not_logged_in: '미로그인',
+  nico_show_comments: '니코생 댓글 표시',
+  nico_comments_on: '댓글 ON',
+  nico_comments_off: '댓글 OFF',
+  nico_broadcast_info: '방송 정보:',
+  nico_viewer_count: '시청자: {count}명',
+  nico_viewer_count_title: '니코생 시청자 수',
+  nico_badge: 'N',
+  nico_broadcast_ended: '방송 종료',
+  nico_broadcast_waiting: '방송 대기 중',
+
   // --- SNS 공유 ---
   sns_share_text: 'SNS에서 공유해 주세요!',
   sns_share_content: '#넷플릭스실황 - Netflix에서 다 같이 댓글을 달자!\n니코니코 스타일의 탄막 댓글을 즐길 수 있는 Chrome 확장 프로그램!\n한번 사용해 보세요 → ',

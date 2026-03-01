@@ -8,7 +8,7 @@ import { loadAuthState, signInWithGoogle, signOut, validateNickname, canChangeNi
 import { isNGComment } from '../utils/ng-filter';
 import { clearElement } from '../utils/sanitize';
 import { t, setLocale, getLocale, onLocaleChange, applyTranslations, LOCALE_OPTIONS } from '../i18n';
-import { log } from '../utils/logger';
+import { log, warn } from '../utils/logger';
 
 const MAX_DOM_COMMENTS = 10000;
 
@@ -56,6 +56,12 @@ const userEmail = document.getElementById('user-email') as HTMLSpanElement;
 const nicknameSaveBtn = document.getElementById('nickname-save') as HTMLButtonElement;
 const nicknameHint = document.getElementById('nickname-hint') as HTMLParagraphElement;
 const signoutBtn = document.getElementById('signout-btn') as HTMLButtonElement;
+
+// ニコ生連携要素
+const nicoViewerCountEl = document.getElementById('nico-viewer-count') as HTMLSpanElement;
+const nicoStatusDot = document.getElementById('nico-status-dot') as HTMLSpanElement;
+const nicoConnectBtn = document.getElementById('nico-connect-btn') as HTMLButtonElement;
+const nicoCommentToggle = document.getElementById('nico-comment-toggle') as HTMLButtonElement;
 
 // アコーディオン プレビュー要素
 const accPreviewUser = document.getElementById('acc-preview-user') as HTMLSpanElement;
@@ -115,6 +121,9 @@ const isPopout = new URLSearchParams(location.search).has('popout');
 let autoScroll = true;
 let currentVideoTime = -1;   // 現在の動画再生位置 (秒)
 let isProgrammaticScroll = false; // プログラム的スクロール中フラグ
+let isLiveMode = false; // ニコ生ブリッジ接続中はライブモード (バッファスキップ)
+/** ニコ生コメント重複排除 (複数Netflixタブからの二重受信を防止) */
+const recentNicoKeys = new Set<string>();
 let commentCount = 0;
 let totalComments = 0;
 let currentTitleId: string | null = null;
@@ -129,8 +138,65 @@ interface BufferedComment {
   admin: boolean;
   videoTime?: number;
   userId?: string;
+  source?: string;
 }
 let commentBuffer: BufferedComment[] = [];
+
+/** ニコ生コメント ドリップキュー
+ * NDGRはセグメント単位でコメントを一括配信 (~10-16秒ごとにバッチ到着) するため、
+ * そのまま表示すると「ドカッと追加 → 空白 → ドカッ」の不自然なリズムになる。
+ * ドリップキューで1コメントずつ時間差で配信し、間髪入れず流れる実況感を実現する。
+ *
+ * 戦略: バッチ全体を MAX_TOTAL (500ms) 以内に全表示。
+ *   14コメント → 36ms間隔 → 504msで全表示
+ *   5コメント → 100ms間隔 → 500msで全表示
+ *   3コメント → 167ms間隔 → 501msで全表示 */
+const DRIP_MAX_TOTAL_MS = 500; // バッチ全体の最大ドレイン時間
+const DRIP_MIN_MS = 30;     // ドリップ最速間隔 (大量コメント時)
+const DRIP_MAX_MS = 200;    // ドリップ最遅間隔 (少量コメント時)
+const DRIP_MAX_QUEUE = 50;  // キュー上限 (超過時は即座にフラッシュ)
+
+interface DripItem {
+  text: string;
+  nickname: string;
+  timestamp: number;
+  mine: boolean;
+  admin: boolean;
+  videoTime?: number;
+  userId?: string;
+  source?: string;
+}
+let dripQueue: DripItem[] = [];
+let dripTimer: number | null = null;
+
+function dripNicoComment(text: string, nickname: string, timestamp: number, admin: boolean, videoTime?: number, userId?: string, source?: string): void {
+  if (dripQueue.length >= DRIP_MAX_QUEUE) {
+    // オーバーフロー: 即座にフラッシュ
+    for (const c of dripQueue) {
+      addComment(c.text, c.nickname, c.timestamp, c.mine, c.admin, false, c.videoTime, c.userId, c.source);
+    }
+    dripQueue = [];
+  }
+  dripQueue.push({ text, nickname, timestamp, mine: false, admin, videoTime, userId, source });
+  // ドレインが未起動なら遅延開始 (バッチ蓄積待ち)
+  // ※ 同期的に drain するとメッセージが1件ずつ即座に処理されてバーストする
+  if (dripTimer === null) {
+    dripTimer = window.setTimeout(drainNicoDrip, DRIP_MIN_MS);
+  }
+}
+
+function drainNicoDrip(): void {
+  dripTimer = null;
+  if (dripQueue.length === 0) return;
+  const c = dripQueue.shift()!;
+  addComment(c.text, c.nickname, c.timestamp, c.mine, c.admin, false, c.videoTime, c.userId, c.source);
+
+  if (dripQueue.length > 0) {
+    // バッチ全体を MAX_TOTAL_MS 以内に完了
+    const interval = Math.max(DRIP_MIN_MS, Math.min(DRIP_MAX_MS, Math.floor(DRIP_MAX_TOTAL_MS / dripQueue.length)));
+    dripTimer = window.setTimeout(drainNicoDrip, interval);
+  }
+}
 
 // (勢い計算の状態変数は勢い計算セクションで定義)
 
@@ -401,6 +467,8 @@ let currentSettings: Settings = { ...DEFAULT_SETTINGS };
 
 /** 再生時間連動スクロールモードが有効かどうか */
 function isVideoTimeMode(): boolean {
+  // ライブモード中は再生時間連動を無効化 (末尾追加 + 自動スクロール)
+  if (isLiveMode) return false;
   return currentSettings.nowPlayingHighlight && currentVideoTime >= 0;
 }
 
@@ -671,7 +739,7 @@ noNetflixGear.addEventListener('click', openSettings);
 async function findNetflixTab(): Promise<chrome.tabs.Tab | null> {
   if (isPopout) {
     // ポップアウト時: 全ウィンドウからNetflix watchタブを検索
-    const tabs = await chrome.tabs.query({ url: '*://*.netflix.com/watch/*' });
+    const tabs = await chrome.tabs.query({ url: ['*://*.netflix.com/watch/*', '*://*.netflix.com/live/*', '*://*.netflix.com/event/*'] });
     return tabs[0] ?? null;
   }
   // 通常サイドパネル: currentWindowのアクティブタブ
@@ -1108,8 +1176,8 @@ function updateTotal(): void {
 const COMMENT_BUFFER_MAX = 500;
 
 /** バッファにコメントを追加し、バナーを更新する */
-function bufferComment(text: string, nickname: string, timestamp: number, admin: boolean, videoTime?: number, userId?: string): void {
-  commentBuffer.push({ text, nickname, timestamp, admin, videoTime, userId });
+function bufferComment(text: string, nickname: string, timestamp: number, admin: boolean, videoTime?: number, userId?: string, source?: string): void {
+  commentBuffer.push({ text, nickname, timestamp, admin, videoTime, userId, source });
   updateBufferBanner();
 
   // 上限超過 → 自動フラッシュ
@@ -1129,7 +1197,7 @@ async function flushCommentBuffer(): Promise<void> {
   });
   // サイドパネル側フラッシュ (勢い・累計はここで計上)
   for (const c of commentBuffer) {
-    addComment(c.text, c.nickname, c.timestamp, false, c.admin, false, c.videoTime, c.userId);
+    addComment(c.text, c.nickname, c.timestamp, false, c.admin, false, c.videoTime, c.userId, c.source);
   }
   commentBuffer = [];
   updateBufferBanner();
@@ -1145,6 +1213,11 @@ async function flushCommentBuffer(): Promise<void> {
 
 /** バナーの表示/非表示を切り替える */
 function updateBufferBanner(): void {
+  // ライブモード中はバナーを常に非表示
+  if (isLiveMode) {
+    newCommentsBar.classList.add('hidden');
+    return;
+  }
   if (commentBuffer.length > 0) {
     newCommentsBar.textContent = t('buffer_new_comments', { count: commentBuffer.length });
     newCommentsBar.classList.remove('hidden');
@@ -1159,7 +1232,7 @@ newCommentsBar.addEventListener('click', () => { flushCommentBuffer(); });
 // --- 接続ステータス ---
 
 function extractTitleId(url: string): string | null {
-  const match = url.match(/netflix\.com\/watch\/(\d+)/);
+  const match = url.match(/netflix\.com\/(?:watch|live|event)\/(\d+)/);
   return match ? match[1] : null;
 }
 
@@ -1249,6 +1322,7 @@ function createCommentRow(
   admin = false,
   videoTime?: number,
   userId?: string,
+  source?: string,
 ): HTMLDivElement {
   // 自分のコメント判定: mine フラグ or userId一致
   const isMine = mine || (!!userId && !!currentUserId && userId === currentUserId);
@@ -1274,6 +1348,14 @@ function createCommentRow(
   const nicknameEl = document.createElement('span');
   nicknameEl.className = 'comment-nickname';
   nicknameEl.textContent = displayName;
+
+  // ニコ生バッジ
+  if (source === 'niconico') {
+    const badge = document.createElement('span');
+    badge.className = 'nfjk-nico-badge';
+    badge.textContent = '[N]';
+    nicknameEl.appendChild(badge);
+  }
 
   const textEl = document.createElement('span');
   textEl.className = 'comment-text';
@@ -1333,15 +1415,15 @@ function formatWriteDate(ts: number): string {
   return `${yyyy}/${MM}/${dd}(${day}) ${hh}:${mm}`;
 }
 
-function addComment(text: string, nickname: string, timestamp: number, mine: boolean, admin = false, skipStats = false, videoTime?: number, userId?: string): void {
+function addComment(text: string, nickname: string, timestamp: number, mine: boolean, admin = false, skipStats = false, videoTime?: number, userId?: string, source?: string): void {
   const empty = commentList.querySelector('.empty-message');
   if (empty) empty.remove();
 
   commentNo++;
-  const row = createCommentRow(commentNo, nickname, text, timestamp, mine, false, admin, videoTime, userId);
+  const row = createCommentRow(commentNo, nickname, text, timestamp, mine, false, admin, videoTime, userId, source);
 
-  // videoTime が有効な場合、再生時間順の正しい位置に挿入する
-  if (videoTime != null) {
+  // videoTime が有効な場合、再生時間順の正しい位置に挿入する (ライブモード中は末尾追加)
+  if (videoTime != null && !isLiveMode) {
     const rows = commentList.querySelectorAll('.comment-row[data-video-time]');
     let insertBefore: Element | null = null;
     for (const existingRow of rows) {
@@ -1484,6 +1566,10 @@ function scrollToVideoTime(videoTime: number): void {
 /** 動画再生位置の更新を受けてサイドパネルを自動スクロールする */
 function handleVideoTimeUpdate(videoTime: number, paused: boolean): void {
   currentVideoTime = videoTime;
+
+  // ライブモード中はvideoTimeベースの勢い・スクロール・ハイライトを全て無効化
+  // (リアルタイムタイマー updatePaceDisplay が勢いを管理する)
+  if (isLiveMode) return;
 
   // 動画時間ベースの勢い更新 (一時停止中も再生位置は変わらないが更新する)
   updateVideoTimePace(videoTime);
@@ -1683,7 +1769,7 @@ async function handleTabChanged(url: string, _tabId: number, reason: 'tab-switch
     // タブ切替の場合、Netflix watchタブがまだ存在するなら状態を維持
     if (reason === 'tab-switch' && currentTitleId) {
       try {
-        const tabs = await chrome.tabs.query({ url: '*://*.netflix.com/watch/*' });
+        const tabs = await chrome.tabs.query({ url: ['*://*.netflix.com/watch/*', '*://*.netflix.com/live/*', '*://*.netflix.com/event/*'] });
         if (tabs.length > 0) return;
       } catch { /* fall through */ }
     }
@@ -1733,14 +1819,34 @@ chrome.runtime.onMessage.addListener((message: any) => {
     // 基本型チェック (背景スクリプト経由でも防御的に検証)
     if (!c || typeof c.text !== 'string' || typeof c.nickname !== 'string' || typeof c.timestamp !== 'number') return;
     const text = c.text.slice(0, MAX_COMMENT_TEXT_LENGTH);
-    const { nickname, timestamp, mine, admin, videoTime, userId } = c;
-    if (mine) {
-      // 自分のコメントは即座に表示 (今まで通り)
-      addComment(text, nickname, timestamp, mine, admin, false, videoTime, userId);
-    } else {
-      // 他者のコメントはバッファに追加 (表示保留、勢い・累計はフラッシュ時に計上)
-      bufferComment(text, nickname, timestamp, admin ?? false, videoTime, userId);
+    const { nickname, timestamp, mine, admin, videoTime, userId, source } = c;
+    // ニコ生コメント: 表示OFF or 重複排除
+    if (source === 'niconico') {
+      if (currentSettings.showNicoComments === false) return;
+      // 複数Netflixタブからの二重受信を防止
+      const dedupKey = `${text}|${timestamp}`;
+      if (recentNicoKeys.has(dedupKey)) return;
+      recentNicoKeys.add(dedupKey);
+      setTimeout(() => recentNicoKeys.delete(dedupKey), 10000);
     }
+
+    if (mine) {
+      // 自分のコメントは常に即座に表示
+      addComment(text, nickname, timestamp, true, admin, false, videoTime, userId, source);
+    } else if (isLiveMode) {
+      if (source === 'niconico') {
+        // ニコ生コメント: ドリップキューで1つずつ滑らかに表示
+        dripNicoComment(text, nickname, timestamp, admin ?? false, videoTime, userId, source);
+      } else {
+        // P2Pコメント: 即座に表示
+        addComment(text, nickname, timestamp, false, admin, false, videoTime, userId, source);
+      }
+    } else {
+      // 非ライブモード: バッファに追加 (表示保留、勢い・累計はフラッシュ時に計上)
+      bufferComment(text, nickname, timestamp, admin ?? false, videoTime, userId, source);
+    }
+  } else if (message.type === 'nico-bridge-state') {
+    handleNicoBridgeState(message);
   } else if (message.type === 'side-panel-peer-count') {
     peerCountEl.textContent = t('stat_peers', { count: message.count });
   } else if (message.type === 'log-synced') {
@@ -2185,6 +2291,129 @@ function setupSnsShareLinks(): void {
 }
 
 setupSnsShareLinks();
+
+// --- ニコ生ブリッジUI ---
+
+let nicoLinked = false;
+
+function updateNicoLinkUI(linked: boolean): void {
+  nicoLinked = linked;
+  if (linked) {
+    nicoConnectBtn.textContent = t('nico_disconnect_btn');
+    nicoConnectBtn.classList.add('linked');
+    nicoStatusDot.className = 'nfjk-nico-status-dot connected';
+    // トグルボタン表示
+    nicoCommentToggle.classList.remove('hidden');
+    updateNicoCommentToggle();
+  } else {
+    nicoConnectBtn.textContent = t('nico_connect_btn');
+    nicoConnectBtn.classList.remove('linked');
+    nicoStatusDot.className = 'nfjk-nico-status-dot';
+    // トグルボタン非表示
+    nicoCommentToggle.classList.add('hidden');
+  }
+}
+
+/** コメントON/OFFトグルの表示状態を更新する */
+function updateNicoCommentToggle(): void {
+  if (currentSettings.showNicoComments) {
+    nicoCommentToggle.textContent = t('nico_comments_on');
+    nicoCommentToggle.classList.remove('off');
+  } else {
+    nicoCommentToggle.textContent = t('nico_comments_off');
+    nicoCommentToggle.classList.add('off');
+  }
+}
+
+function handleNicoBridgeState(state: Record<string, unknown>): void {
+  const status = (state.status as string) ?? 'disconnected';
+  const viewerCount = (state.viewerCount as number) ?? 0;
+  const hasNicoSession = !!state.hasNicoSession;
+
+  // 連携状態に応じてボタンテキストとドット色を切り替え
+  updateNicoLinkUI(hasNicoSession);
+
+  // connecting/error 時はドットを上書き
+  if (status === 'connecting') {
+    nicoStatusDot.className = 'nfjk-nico-status-dot connecting';
+  } else if (status === 'error') {
+    nicoStatusDot.className = 'nfjk-nico-status-dot error';
+  }
+
+  // ライブモード切替
+  if (status === 'connected') {
+    isLiveMode = true;
+    autoScroll = true;
+    scrollBtn.classList.add('hidden');
+    // 既存バッファをフラッシュ
+    flushCommentBuffer();
+  } else {
+    isLiveMode = false;
+  }
+
+  // 視聴者数 (stats bar)
+  if (status === 'connected' && viewerCount > 0) {
+    nicoViewerCountEl.textContent = viewerCount.toLocaleString();
+    nicoViewerCountEl.classList.remove('hidden');
+  } else {
+    nicoViewerCountEl.classList.add('hidden');
+  }
+}
+
+// ニコニコ連携/解除ボタン
+nicoConnectBtn.addEventListener('click', () => {
+  if (nicoLinked) {
+    // 解除
+    nicoConnectBtn.disabled = true;
+    chrome.runtime.sendMessage({ type: 'nico-oauth-disconnect' }, () => {
+      nicoConnectBtn.disabled = false;
+      updateNicoLinkUI(false);
+    });
+  } else {
+    // 連携
+    nicoConnectBtn.disabled = true;
+    nicoConnectBtn.textContent = '…';
+    chrome.runtime.sendMessage({ type: 'nico-oauth-start' }, (res) => {
+      nicoConnectBtn.disabled = false;
+      if (res?.ok) {
+        log('[Sidepanel] Nico linked via', res.method);
+        updateNicoLinkUI(true);
+      } else {
+        warn('[Sidepanel] Nico link failed:', res?.error);
+        updateNicoLinkUI(false);
+      }
+    });
+  }
+});
+
+// コメントON/OFFトグル
+nicoCommentToggle.addEventListener('click', async () => {
+  currentSettings.showNicoComments = !currentSettings.showNicoComments;
+  await saveSettings(currentSettings);
+  updateNicoCommentToggle();
+  // content script に設定変更を通知
+  try {
+    const tab = await findNetflixTab();
+    if (tab?.id !== undefined) {
+      chrome.tabs.sendMessage(tab.id, { type: 'settings-changed', settings: currentSettings });
+    }
+  } catch { /* 無視 */ }
+});
+
+// 起動時: 最新の設定を即座に取得 (lvId 切り替え検出)
+chrome.runtime.sendMessage({ type: 'refresh-config' });
+
+// 起動時: ニコ生ブリッジ状態取得
+chrome.runtime.sendMessage({ type: 'get-nico-bridge-state' }, (state) => {
+  if (state) handleNicoBridgeState(state);
+});
+
+// 起動時: ニコニコ連携状態確認
+chrome.runtime.sendMessage({ type: 'nico-oauth-status' }, (res) => {
+  if (res?.linked) {
+    updateNicoLinkUI(true);
+  }
+});
 
 // --- 初期化 ---
 

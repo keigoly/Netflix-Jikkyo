@@ -186,6 +186,27 @@ const zhTW: TranslationKeys = {
   weekday_fri: '五',
   weekday_sat: '六',
 
+  // --- Nico 生放送連動 ---
+  section_nico: 'Nico 生放送',
+  nico_connect_btn: '連動',
+  nico_disconnect_btn: '解除',
+  nico_preview_disconnected: '未連線',
+  nico_preview_connecting: '連線中…',
+  nico_preview_connected: '已連線',
+  nico_preview_error: '錯誤',
+  nico_account_status: 'niconico 帳號：',
+  nico_account_logged_in: '已登入',
+  nico_account_not_logged_in: '未登入',
+  nico_show_comments: '顯示 Nico 生放送留言',
+  nico_comments_on: '留言 ON',
+  nico_comments_off: '留言 OFF',
+  nico_broadcast_info: '直播資訊：',
+  nico_viewer_count: '觀眾：{count}人',
+  nico_viewer_count_title: 'Nico 生放送觀眾數',
+  nico_badge: 'N',
+  nico_broadcast_ended: '直播已結束',
+  nico_broadcast_waiting: '等待直播開始',
+
   // --- SNS 分享 ---
   sns_share_text: '請在社群媒體上分享！',
   sns_share_content: '#Netflix實況 - 一起在Netflix上留言吧！\n享受niconico風格彈幕留言的Chrome擴充功能！\n歡迎試用 → ',

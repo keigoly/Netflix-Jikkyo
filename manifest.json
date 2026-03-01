@@ -1,22 +1,26 @@
 {
   "manifest_version": 3,
   "name": "__MSG_appName__",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "__MSG_appDescription__",
   "default_locale": "en",
-  "permissions": ["storage", "activeTab", "sidePanel", "tabs", "scripting", "identity", "alarms"],
+  "permissions": ["storage", "activeTab", "sidePanel", "tabs", "scripting", "identity", "alarms", "cookies", "declarativeNetRequest"],
   "oauth2": {
     "client_id": "284840824950-rft1ifp0elnmr514hq7pkuhga49p7ft3.apps.googleusercontent.com",
     "scopes": ["openid", "email", "profile"]
   },
-  "host_permissions": ["https://www.netflix.com/*", "https://netflix-jikkyo-config.skeigoly.workers.dev/*"],
+  "host_permissions": ["https://www.netflix.com/*", "https://netflix-jikkyo-config.skeigoly.workers.dev/*", "https://*.nicovideo.jp/*", "https://mpn.live.nicovideo.jp/*"],
   "background": {
     "service_worker": "src/background/index.ts",
     "type": "module"
   },
   "content_scripts": [
     {
-      "matches": ["https://www.netflix.com/watch/*"],
+      "matches": [
+        "https://www.netflix.com/watch/*",
+        "https://www.netflix.com/live/*",
+        "https://www.netflix.com/event/*"
+      ],
       "js": ["src/content/index.ts"],
       "run_at": "document_idle"
     }
@@ -37,7 +41,7 @@
     "default_path": "src/sidepanel/index.html"
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://www.netflix.com https://netflix-jikkyo-config.skeigoly.workers.dev https://api.github.com https://www.googleapis.com https://accounts.google.com"
+    "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline'; connect-src https://www.netflix.com https://netflix-jikkyo-config.skeigoly.workers.dev https://api.github.com https://www.googleapis.com https://accounts.google.com https://*.nicovideo.jp https://mpn.live.nicovideo.jp https://oauth.nicovideo.jp wss://*.nicovideo.jp"
   },
   "web_accessible_resources": [
     {

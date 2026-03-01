@@ -186,6 +186,27 @@ const cs: TranslationKeys = {
   weekday_fri: 'Pá',
   weekday_sat: 'So',
 
+  // --- Integrace Nico Live ---
+  section_nico: 'Nico Live',
+  nico_connect_btn: 'Připojit',
+  nico_disconnect_btn: 'Odpojit',
+  nico_preview_disconnected: 'Nepřipojeno',
+  nico_preview_connecting: 'Připojování...',
+  nico_preview_connected: 'Připojeno',
+  nico_preview_error: 'Chyba',
+  nico_account_status: 'Účet Niconico:',
+  nico_account_logged_in: 'Přihlášen',
+  nico_account_not_logged_in: 'Nepřihlášen',
+  nico_show_comments: 'Zobrazit komentáře Nico Live',
+  nico_comments_on: 'Komentáře ZAP',
+  nico_comments_off: 'Komentáře VYP',
+  nico_broadcast_info: 'Informace o vysílání:',
+  nico_viewer_count: 'Diváci: {count}',
+  nico_viewer_count_title: 'Počet diváků Nico Live',
+  nico_badge: 'N',
+  nico_broadcast_ended: 'Vysílání ukončeno',
+  nico_broadcast_waiting: 'Čekání na vysílání',
+
   // --- Sdílení na sociálních sítích ---
   sns_share_text: 'Sdílejte prosím na sociálních sítích!',
   sns_share_content: '#NetflixJikkyo - Sledujte Netflix s živými komentáři!\nRozšíření pro Chrome s komentáři ve stylu Niconico!\nVyzkoušejte → ',

@@ -28,6 +28,9 @@ export const DEFAULT_AUTH_STATE: AuthState = {
 
 import type { Locale } from '../i18n/types';
 
+/** コメントソース */
+export type CommentSource = 'p2p' | 'niconico';
+
 /** 弾幕コメントの型 */
 export interface Comment {
   id: string;
@@ -39,6 +42,8 @@ export interface Comment {
   videoTime?: number;
   /** Google認証ベースのユーザーID */
   userId?: string;
+  /** コメントソース */
+  source?: CommentSource;
 }
 
 /** コメントの固定色 (白) */
@@ -91,6 +96,8 @@ export interface Settings {
   ngUserIds: string[];
   /** 表示言語 */
   language: Locale;
+  /** ニコ生コメント表示 (非連携ユーザー用) */
+  showNicoComments: boolean;
 }
 
 /** デフォルト設定 */
@@ -110,6 +117,7 @@ export const DEFAULT_SETTINGS: Settings = {
   ngCommands: [],
   ngUserIds: [],
   language: 'ja',
+  showNicoComments: true,
 };
 
 /** P2P メッセージ型 */
@@ -126,6 +134,8 @@ export interface P2PCommentMessage {
   admin?: string;
   /** ECDSA署名 (base64) */
   signature?: string;
+  /** コメントソース */
+  source?: CommentSource;
 }
 
 /** Service Worker へのメッセージ */
@@ -147,6 +157,8 @@ export interface SidePanelComment {
     videoTime?: number;
     /** Google認証ベースのユーザーID */
     userId?: string;
+    /** コメントソース */
+    source?: CommentSource;
   };
 }
 
@@ -206,6 +218,46 @@ export interface SidePanelTabChanged {
   reason: 'tab-switch' | 'url-change';
 }
 
+/** ニコ生ブリッジ設定 */
+export interface NicoBridgeConfig {
+  enabled: boolean;
+  lvId: string | null;
+  title?: string;
+  titleIds?: string[];
+  clientId?: string;
+  clientSecret?: string;
+}
+
+/** ニコ生ブリッジ接続状態 */
+export type NicoBridgeStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
+/** ニコ生ブリッジ状態メッセージ (Background → Sidepanel/Content) */
+export interface NicoBridgeStateMessage {
+  type: 'nico-bridge-state';
+  status: NicoBridgeStatus;
+  viewerCount?: number;
+  hasNicoSession: boolean;
+  lvId?: string;
+  title?: string;
+  error?: string;
+}
+
+/** ニコ生ブリッジコメントメッセージ (Background → Content) */
+export interface NicoBridgeCommentMessage {
+  type: 'nico-bridge-comment';
+  id: string;
+  text: string;
+  nickname: string;
+  timestamp: number;
+  nicoUserId?: string;
+}
+
+/** ニコ生ブリッジ投稿リクエスト (Content → Background) */
+export interface NicoBridgePostRequest {
+  type: 'nico-bridge-post';
+  text: string;
+}
+
 /** リモート機能フラグ (Cloudflare Workers から取得) */
 export interface FeatureFlags {
   liveRelay: boolean;
@@ -213,6 +265,7 @@ export interface FeatureFlags {
   relayTitleIds: string[];       // 空 = 全タイトル対象
   announcement: string | null;
   minVersion: string | null;
+  nicoBridge: NicoBridgeConfig;
 }
 
 export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
@@ -221,6 +274,7 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   relayTitleIds: [],
   announcement: null,
   minVersion: null,
+  nicoBridge: { enabled: false, lvId: null },
 };
 
 /** コメント本文の最大文字数 */

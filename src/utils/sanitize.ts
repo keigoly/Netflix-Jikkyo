@@ -82,6 +82,9 @@ export function validateP2PComment(data: unknown): ValidatedComment | null {
   const admin = typeof msg.admin === 'string' ? msg.admin : undefined;
   const signature = typeof msg.signature === 'string' ? msg.signature : undefined;
 
+  // source フィールド: 'p2p' | 'niconico' のみ許可
+  const source = (msg.source === 'niconico') ? 'niconico' as const : undefined;
+
   return {
     id,
     text,
@@ -91,6 +94,7 @@ export function validateP2PComment(data: unknown): ValidatedComment | null {
     userId: userId ?? undefined,
     admin,
     signature,
+    source,
   };
 }
 
@@ -242,6 +246,35 @@ export class PeerRateLimiter {
     clearInterval(this.cleanupTimer);
     this.buckets.clear();
   }
+}
+
+/** ニコ生コメント構造検証 */
+export function validateNicoComment(data: unknown): { id: string; text: string; nickname: string; timestamp: number; nicoUserId?: string } | null {
+  if (data == null || typeof data !== 'object') return null;
+  const msg = data as Record<string, unknown>;
+
+  const id = sanitizeId(msg.id, MAX_COMMENT_ID_LENGTH);
+  if (!id) return null;
+
+  const text = sanitizeText(msg.text, MAX_COMMENT_TEXT_LENGTH);
+  if (!text) return null;
+
+  const nickname = sanitizeText(msg.nickname, MAX_NICKNAME_LENGTH);
+  if (!nickname) return null;
+
+  if (typeof msg.timestamp !== 'number' || !Number.isFinite(msg.timestamp)) return null;
+
+  const nicoUserId = msg.nicoUserId !== undefined
+    ? sanitizeId(msg.nicoUserId, MAX_USER_ID_LENGTH)
+    : undefined;
+
+  return {
+    id,
+    text,
+    nickname,
+    timestamp: msg.timestamp,
+    nicoUserId: nicoUserId ?? undefined,
+  };
 }
 
 export function clearElement(el: HTMLElement): void {

@@ -3,9 +3,9 @@
 
 import { log, warn } from './logger';
 
-/** /watch/(\d+) からタイトルIDを抽出する */
+/** /watch/(\d+), /live/(\d+), /event/(\d+) からタイトルIDを抽出する */
 export function getTitleId(): string | null {
-  const match = location.pathname.match(/\/watch\/(\d+)/);
+  const match = location.pathname.match(/\/(?:watch|live|event)\/(\d+)/);
   return match ? match[1] : null;
 }
 

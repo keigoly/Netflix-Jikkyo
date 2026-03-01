@@ -186,6 +186,27 @@ const en: TranslationKeys = {
   weekday_fri: 'Fri',
   weekday_sat: 'Sat',
 
+  // --- Nico Live integration ---
+  section_nico: 'Nico Live',
+  nico_connect_btn: 'Connect',
+  nico_disconnect_btn: 'Disconnect',
+  nico_preview_disconnected: 'Disconnected',
+  nico_preview_connecting: 'Connecting...',
+  nico_preview_connected: 'Connected',
+  nico_preview_error: 'Error',
+  nico_account_status: 'Niconico account:',
+  nico_account_logged_in: 'Logged in',
+  nico_account_not_logged_in: 'Not logged in',
+  nico_show_comments: 'Show Nico Live comments',
+  nico_comments_on: 'Comments ON',
+  nico_comments_off: 'Comments OFF',
+  nico_broadcast_info: 'Broadcast info:',
+  nico_viewer_count: 'Viewers: {count}',
+  nico_viewer_count_title: 'Nico Live viewer count',
+  nico_badge: 'N',
+  nico_broadcast_ended: 'Broadcast ended',
+  nico_broadcast_waiting: 'Waiting for broadcast',
+
   // --- SNS share ---
   sns_share_text: 'Please share on social media!',
   sns_share_content: '#NetflixJikkyo - Watch Netflix with live comments!\nA Chrome extension for Niconico-style bullet comments on Netflix!\nGive it a try → ',

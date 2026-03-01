@@ -13,7 +13,7 @@ import {
   exportAllComments, clearAllComments, deleteLatestComments,
 } from './storage';
 import { signComment, verifyAdminSignature, loadAdminPrivateKey } from '../utils/crypto';
-import type { Comment, DanmakuItem, FeatureFlags, P2PCommentMessage, P2PLogRequest, P2PLogResponse, Settings, SidePanelComment, SidePanelLogSynced, SidePanelTitleInfo } from '../types';
+import type { Comment, CommentSource, DanmakuItem, FeatureFlags, NicoBridgeCommentMessage, NicoBridgeStateMessage, P2PCommentMessage, P2PLogRequest, P2PLogResponse, Settings, SidePanelComment, SidePanelLogSynced, SidePanelTitleInfo } from '../types';
 import { DEFAULT_SETTINGS, DEFAULT_FEATURE_FLAGS, MAX_COMMENT_TEXT_LENGTH, MAX_TITLE_ID_LENGTH } from '../types';
 import { isNGComment, isUserNGComment } from '../utils/ng-filter';
 import { sanitizeText, sanitizeId } from '../utils/sanitize';
@@ -43,6 +43,20 @@ let featureFlags: FeatureFlags = { ...DEFAULT_FEATURE_FLAGS };
 let currentUserId: string | undefined;
 
 let pauseBuffer: DanmakuItem[] = [];
+
+/** ニコ生ブリッジ状態 */
+let nicoBridgeHasSession = false;
+/** ニコ生コメント重複排除 (IDベース) */
+const receivedNicoCommentIds = new Set<string>();
+const NICO_DEDUP_MAX_SIZE = 5000;
+
+/** ニコ生弾幕ドリップキュー: NDGRバッチ到着を1コメントずつ滑らかに逐次描画 */
+const nicoDanmakuDripQueue: DanmakuItem[] = [];
+let nicoDanmakuDripTimer: ReturnType<typeof setTimeout> | null = null;
+const DANMAKU_DRIP_MAX_TOTAL_MS = 500; // バッチ全体の最大ドレイン時間 (これ以内に全コメント表示)
+const DANMAKU_DRIP_MIN_MS = 30;        // 最速間隔 (大量コメント時)
+const DANMAKU_DRIP_MAX_MS = 200;       // 最遅間隔 (少量コメント時、1コメントの上限)
+const DANMAKU_DRIP_MAX_QUEUE = 50;     // キュー上限 (超過時は一括フラッシュ)
 
 /** 過去コメント弾幕再生 */
 let pastDanmakuComments: Comment[] = [];
@@ -75,6 +89,12 @@ function cleanup(): void {
   room = null;
   danmakuBuffer = [];
   pauseBuffer = [];
+  // ドリップキュークリア
+  if (nicoDanmakuDripTimer) {
+    clearTimeout(nicoDanmakuDripTimer);
+    nicoDanmakuDripTimer = null;
+  }
+  nicoDanmakuDripQueue.length = 0;
   pastDanmakuComments = [];
   pastDanmakuIndex = 0;
   lastVideoTime = -1;
@@ -139,10 +159,10 @@ function watchDocumentTitle(): void {
 }
 
 /** サイドパネルにコメントを送信する */
-function sendToSidePanel(text: string, nickname: string, timestamp: number, mine: boolean, admin = false, videoTime?: number, userId?: string): void {
+function sendToSidePanel(text: string, nickname: string, timestamp: number, mine: boolean, admin = false, videoTime?: number, userId?: string, source?: CommentSource): void {
   const msg: SidePanelComment = {
     type: 'comment',
-    comment: { text, nickname, timestamp, mine, admin, videoTime, userId },
+    comment: { text, nickname, timestamp, mine, admin, videoTime, userId, source },
   };
   chrome.runtime.sendMessage(msg).catch(() => {
     // サイドパネルが閉じている場合は無視
@@ -261,12 +281,16 @@ function attachVideoListeners(video: HTMLVideoElement): void {
   };
   const onPlay = () => {
     danmaku?.resume();
-    // 一時停止中に溜まったコメントを流す
-    for (const item of pauseBuffer) {
+    // 一時停止中に溜まったコメントを流す (最新5件のみ、古いものは破棄)
+    const MAX_RESUME_COMMENTS = 5;
+    const recent = pauseBuffer.length > MAX_RESUME_COMMENTS
+      ? pauseBuffer.slice(-MAX_RESUME_COMMENTS)
+      : pauseBuffer;
+    for (const item of recent) {
       danmaku?.draw(item);
     }
     pauseBuffer = [];
-    log('Video playing → danmaku resumed');
+    log(`Video playing → danmaku resumed (${recent.length}/${pauseBuffer.length + recent.length} shown)`);
   };
   const onTimeUpdate = () => onVideoTimeUpdate();
 
@@ -474,6 +498,18 @@ async function initialize(): Promise<void> {
 
   room = createRoom(titleId, {
     onComment: async (msg, peerId) => {
+      // ニコ生ソースのコメントで表示OFF → スキップ
+      const source: CommentSource = (msg.source === 'niconico') ? 'niconico' : 'p2p';
+      if (source === 'niconico') {
+        // 連携ユーザーは自分がブリッジしているのでP2Pからの再配信は無視
+        if (nicoBridgeHasSession) return;
+        // 非連携ユーザーは設定に従う
+        if (settings.showNicoComments === false) return;
+        // 重複排除 (IDベース)
+        if (receivedNicoCommentIds.has(msg.id)) return;
+        receivedNicoCommentIds.add(msg.id);
+      }
+
       // NGフィルター: ブロック対象はスキップ (管理者は除外)
       const isAdminMsg = msg.admin === '1' && msg.signature;
       if (!isAdminMsg) {
@@ -493,17 +529,21 @@ async function initialize(): Promise<void> {
         isAdmin = await verifyAdminSignature(msg.id, msg.text, msg.timestamp, msg.signature);
       }
 
+      // 全ソース共通: ブリッジユーザーの videoTime を活用
       const videoTime = msg.videoTime ?? getVideoCurrentTime();
       const displayText = msg.text.slice(0, MAX_COMMENT_TEXT_LENGTH);
 
-      if (danmaku?.isPaused()) {
+      if (source === 'niconico') {
+        // ニコ生コメントはドリップキュー経由で滑らかに描画
+        enqueueNicoDanmaku({ text: displayText, admin: isAdmin });
+      } else if (danmaku?.isPaused()) {
         pauseBuffer.push({ text: displayText, admin: isAdmin });
       } else {
         danmakuBuffer.push({ text: displayText, admin: isAdmin });
       }
 
       // サイドパネルに送信
-      sendToSidePanel(displayText, msg.nickname, msg.timestamp, false, isAdmin, videoTime, msg.userId);
+      sendToSidePanel(displayText, msg.nickname, msg.timestamp, false, isAdmin, videoTime, msg.userId, source);
 
       // IndexedDB に保存
       const comment: Comment = {
@@ -514,6 +554,7 @@ async function initialize(): Promise<void> {
         titleId,
         videoTime,
         userId: msg.userId,
+        source,
       };
       saveComment(comment).catch(console.error);
       // 過去弾幕配列に挿入 (次回シーク時に再生可能にする)
@@ -616,6 +657,11 @@ async function handleCommentSend(text: string, titleId: string, fromSidePanel = 
   };
   room?.send(msg);
 
+  // ニコ生ブリッジ投稿 (連携ユーザーのみ)
+  if (nicoBridgeHasSession) {
+    chrome.runtime.sendMessage({ type: 'nico-bridge-post', text }).catch(() => {});
+  }
+
   // IndexedDB 保存
   const comment: Comment = {
     id,
@@ -629,6 +675,129 @@ async function handleCommentSend(text: string, titleId: string, fromSidePanel = 
   saveComment(comment).catch(console.error);
   // 過去弾幕配列に挿入 (次回シーク時に再生可能にする)
   insertPastDanmakuComment(comment);
+}
+
+/** ニコ生弾幕ドリップキューにコメントを追加 */
+function enqueueNicoDanmaku(item: DanmakuItem): void {
+  if (danmaku?.isPaused()) {
+    pauseBuffer.push(item);
+    return;
+  }
+  nicoDanmakuDripQueue.push(item);
+  // キュー上限超過 → 一括フラッシュ (過負荷時の安全弁)
+  if (nicoDanmakuDripQueue.length > DANMAKU_DRIP_MAX_QUEUE) {
+    flushNicoDanmakuDrip();
+    return;
+  }
+  // ドレインが未起動なら遅延開始 (バッチ蓄積待ち)
+  // ※ 同期的に drain するとメッセージが1件ずつ即座に描画されてバーストする
+  //   setTimeout で遅延することで、同一バッチの全メッセージがキューに蓄積されてから
+  //   ドレインが開始される
+  if (!nicoDanmakuDripTimer) {
+    nicoDanmakuDripTimer = setTimeout(drainNicoDanmakuDrip, DANMAKU_DRIP_MIN_MS);
+  }
+}
+
+/** ドリップキューから1コメントずつ描画 (適応的間隔) */
+function drainNicoDanmakuDrip(): void {
+  nicoDanmakuDripTimer = null;
+  if (nicoDanmakuDripQueue.length === 0) return;
+  // 一時停止中はドレインを停止 (resume 時に pauseBuffer 経由で処理)
+  if (danmaku?.isPaused()) {
+    for (const item of nicoDanmakuDripQueue) {
+      pauseBuffer.push(item);
+    }
+    nicoDanmakuDripQueue.length = 0;
+    return;
+  }
+  const item = nicoDanmakuDripQueue.shift()!;
+  danmaku?.draw(item);
+  if (nicoDanmakuDripQueue.length > 0) {
+    // 適応的間隔: バッチ全体を MAX_TOTAL_MS 以内に完了
+    // 14コメント → 500/14=36ms間隔 → 504ms で全表示
+    // 3コメント → 500/3=167ms間隔 → 501ms で全表示
+    const interval = Math.max(
+      DANMAKU_DRIP_MIN_MS,
+      Math.min(DANMAKU_DRIP_MAX_MS, Math.floor(DANMAKU_DRIP_MAX_TOTAL_MS / nicoDanmakuDripQueue.length)),
+    );
+    nicoDanmakuDripTimer = setTimeout(drainNicoDanmakuDrip, interval);
+  }
+}
+
+/** ドリップキューを即座に全フラッシュ */
+function flushNicoDanmakuDrip(): void {
+  if (nicoDanmakuDripTimer) {
+    clearTimeout(nicoDanmakuDripTimer);
+    nicoDanmakuDripTimer = null;
+  }
+  for (const item of nicoDanmakuDripQueue) {
+    danmaku?.draw(item);
+  }
+  nicoDanmakuDripQueue.length = 0;
+}
+
+/** ニコ生コメント受信処理 */
+function handleNicoBridgeComment(msg: NicoBridgeCommentMessage): void {
+  // コメント表示OFFなら無視 (連携ユーザーでもOFF)
+  if (settings.showNicoComments === false) return;
+
+  // 重複排除 (IDベース)
+  if (receivedNicoCommentIds.has(msg.id)) return;
+  receivedNicoCommentIds.add(msg.id);
+  if (receivedNicoCommentIds.size > NICO_DEDUP_MAX_SIZE) {
+    // 古いエントリを削除 (Set は挿入順を保持)
+    const iter = receivedNicoCommentIds.values();
+    for (let i = 0; i < 1000; i++) iter.next();
+    // Set は古い要素を削除するAPIがないので再構築
+    const arr = [...receivedNicoCommentIds];
+    receivedNicoCommentIds.clear();
+    for (const id of arr.slice(1000)) {
+      receivedNicoCommentIds.add(id);
+    }
+  }
+
+  const text = sanitizeText(msg.text, MAX_COMMENT_TEXT_LENGTH);
+  if (!text) return;
+
+  // NGフィルター
+  if (isNGComment(text)) return;
+  if (isUserNGComment(text, settings.ngComments, msg.nicoUserId ?? '', settings.ngUserIds)) return;
+
+  // videoTime を取得 (アーカイブ再生用に保存)
+  const videoTime = getVideoCurrentTime();
+
+  // 弾幕描画: ドリップキュー経由で滑らかに逐次描画
+  enqueueNicoDanmaku({ text });
+
+  // サイドパネルに送信
+  sendToSidePanel(text, msg.nickname, msg.timestamp, false, false, videoTime, msg.nicoUserId, 'niconico');
+
+  // IndexedDB に保存 (アーカイブ弾幕再生用)
+  const comment: Comment = {
+    id: msg.id,
+    text,
+    nickname: msg.nickname,
+    timestamp: msg.timestamp,
+    titleId: currentTitleId!,
+    videoTime,
+    userId: msg.nicoUserId,
+    source: 'niconico',
+  };
+  saveComment(comment).catch(console.error);
+  insertPastDanmakuComment(comment);
+
+  // P2P再配信 (連携ユーザーのみ)
+  if (nicoBridgeHasSession && room) {
+    const p2pMsg: P2PCommentMessage = {
+      id: msg.id,
+      text,
+      nickname: msg.nickname,
+      timestamp: msg.timestamp,
+      videoTime,
+      source: 'niconico',
+    };
+    room.send(p2pMsg);
+  }
 }
 
 // --- けいふぉんと注入 ---
@@ -646,7 +815,7 @@ function injectKeifont(): void {
 
 // SPA遷移監視
 cleanupNav = watchNavigation((url) => {
-  if (url.includes('/watch/')) {
+  if (/\/(?:watch|live|event)\//.test(url)) {
     initialize();
   } else {
     cleanup();
@@ -740,6 +909,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'feature-flags-updated' && message.flags) {
     featureFlags = message.flags;
     log('Feature flags updated:', featureFlags);
+  }
+  // 設定変更通知 (サイドパネルからのトグル操作等)
+  if (message.type === 'settings-changed' && message.settings) {
+    settings = { ...DEFAULT_SETTINGS, ...message.settings };
+  }
+  // ニコ生ブリッジ状態更新
+  if (message.type === 'nico-bridge-state') {
+    nicoBridgeHasSession = !!message.hasNicoSession;
+  }
+  // ニコ生コメント受信
+  if (message.type === 'nico-bridge-comment' && currentTitleId) {
+    const bridgeTitleIds = featureFlags.nicoBridge?.titleIds;
+    if (bridgeTitleIds?.length && !bridgeTitleIds.includes(currentTitleId)) return;
+    handleNicoBridgeComment(message as NicoBridgeCommentMessage);
   }
   // 弾幕描画のみ (テスト・プレビュー用、P2P送信なし)
   if (message.type === 'render-danmaku') {

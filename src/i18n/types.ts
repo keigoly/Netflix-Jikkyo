@@ -191,6 +191,27 @@ export interface TranslationKeys {
   weekday_fri: string;
   weekday_sat: string;
 
+  // --- ニコ生連携 ---
+  section_nico: string;
+  nico_connect_btn: string;
+  nico_disconnect_btn: string;
+  nico_preview_disconnected: string;
+  nico_preview_connecting: string;
+  nico_preview_connected: string;
+  nico_preview_error: string;
+  nico_account_status: string;
+  nico_account_logged_in: string;
+  nico_account_not_logged_in: string;
+  nico_show_comments: string;
+  nico_comments_on: string;
+  nico_comments_off: string;
+  nico_broadcast_info: string;
+  nico_viewer_count: string;
+  nico_viewer_count_title: string;
+  nico_badge: string;
+  nico_broadcast_ended: string;
+  nico_broadcast_waiting: string;
+
   // --- SNSシェア ---
   sns_share_text: string;
   sns_share_content: string;

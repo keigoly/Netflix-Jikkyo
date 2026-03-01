@@ -2715,6 +2715,211 @@ body.nfjk-bg-light .nfjk-sns-icon:hover {
   color: #222;
 }
 
+/* ===== ニコ生連携 ===== */
+
+/* ニコ生バッジ (コメント行) */
+.nfjk-nico-badge {
+  color: #E50914;
+  font-size: 9px;
+  font-weight: 700;
+  margin-left: 2px;
+  vertical-align: middle;
+  letter-spacing: 0;
+}
+
+/* ニコ生視聴者数 (stats bar) */
+.nfjk-nico-viewer-count {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 10px;
+  margin-left: 6px;
+}
+.nfjk-nico-viewer-count::before {
+  content: "📺 ";
+}
+body.nfjk-bg-light .nfjk-nico-viewer-count {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+/* 外部サイト連携見出し */
+.nfjk-external-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  margin-top: 6px;
+  padding-top: 8px;
+  padding-bottom: 2px;
+}
+.nfjk-external-section-label {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.35);
+  letter-spacing: 0.5px;
+}
+body.nfjk-bg-light .nfjk-external-section {
+  border-top-color: rgba(0, 0, 0, 0.06);
+}
+body.nfjk-bg-light .nfjk-external-section-label {
+  color: rgba(0, 0, 0, 0.35);
+}
+
+/* ニコ生連携行 (ユーザーセクション内) */
+.nfjk-nico-link-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 6px;
+  padding-bottom: 4px;
+}
+.nfjk-nico-link-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.nfjk-nico-icon {
+  flex-shrink: 0;
+  opacity: 0.6;
+  filter: invert(1);
+  vertical-align: middle;
+}
+.nfjk-nico-link-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* ステータスドット */
+.nfjk-nico-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #666;
+  flex-shrink: 0;
+}
+.nfjk-nico-status-dot.connected {
+  background: #00d26a;
+}
+.nfjk-nico-status-dot.connecting {
+  background: #ffa500;
+  animation: nfjk-pulse 1.5s infinite;
+}
+.nfjk-nico-status-dot.error {
+  background: #E50914;
+}
+@keyframes nfjk-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* ニコ生ボタン右側コンテナ */
+.nfjk-nico-link-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* コメントON/OFFトグルボタン */
+.nfjk-nico-comment-toggle {
+  font-size: 10px;
+  font-family: inherit;
+  font-weight: 600;
+  color: #00d26a;
+  padding: 2px 8px;
+  border: 1px solid rgba(0, 210, 106, 0.4);
+  border-radius: 10px;
+  background: rgba(0, 210, 106, 0.1);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+.nfjk-nico-comment-toggle:hover {
+  background: rgba(0, 210, 106, 0.18);
+  color: #00e676;
+}
+.nfjk-nico-comment-toggle.off {
+  color: rgba(255, 255, 255, 0.4);
+  border-color: rgba(255, 255, 255, 0.12);
+  background: transparent;
+}
+.nfjk-nico-comment-toggle.off:hover {
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.06);
+}
+body.nfjk-bg-light .nfjk-nico-comment-toggle {
+  color: #00a152;
+  border-color: rgba(0, 161, 82, 0.3);
+  background: rgba(0, 161, 82, 0.08);
+}
+body.nfjk-bg-light .nfjk-nico-comment-toggle:hover {
+  background: rgba(0, 161, 82, 0.15);
+}
+body.nfjk-bg-light .nfjk-nico-comment-toggle.off {
+  color: rgba(0, 0, 0, 0.3);
+  border-color: rgba(0, 0, 0, 0.08);
+  background: transparent;
+}
+body.nfjk-bg-light .nfjk-nico-comment-toggle.off:hover {
+  color: rgba(0, 0, 0, 0.5);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+/* 連携ボタン */
+.nfjk-nico-connect-btn {
+  font-size: 11px;
+  font-family: inherit;
+  color: rgba(255, 255, 255, 0.8);
+  padding: 3px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+  align-self: center;
+  line-height: 1.4;
+}
+.nfjk-nico-connect-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+.nfjk-nico-connect-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* 連携済みボタン (解除する) */
+.nfjk-nico-connect-btn.linked {
+  color: rgba(255, 255, 255, 0.6);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+.nfjk-nico-connect-btn.linked:hover {
+  color: #E50914;
+  border-color: rgba(229, 9, 20, 0.3);
+  background: rgba(229, 9, 20, 0.06);
+}
+
+/* ライトテーマ */
+body.nfjk-bg-light .nfjk-nico-icon {
+  filter: none;
+  opacity: 0.5;
+}
+body.nfjk-bg-light .nfjk-nico-link-label {
+  color: rgba(0, 0, 0, 0.6);
+}
+body.nfjk-bg-light .nfjk-nico-connect-btn {
+  color: rgba(0, 0, 0, 0.45);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+body.nfjk-bg-light .nfjk-nico-connect-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.7);
+}
+body.nfjk-bg-light .nfjk-nico-connect-btn.linked {
+  color: rgba(0, 0, 0, 0.3);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+body.nfjk-bg-light .nfjk-nico-connect-btn.linked:hover {
+  color: #E50914;
+  border-color: rgba(229, 9, 20, 0.3);
+  background: rgba(229, 9, 20, 0.04);
+}
+
 /* ===== hidden ユーティリティ ===== */
 .hidden {
   display: none !important;

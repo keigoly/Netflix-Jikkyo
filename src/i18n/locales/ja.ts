@@ -187,6 +187,27 @@ const ja: TranslationKeys = {
   weekday_fri: '金',
   weekday_sat: '土',
 
+  // --- ニコ生連携 ---
+  section_nico: 'ニコ生連携',
+  nico_connect_btn: '連携する',
+  nico_disconnect_btn: '解除する',
+  nico_preview_disconnected: '未接続',
+  nico_preview_connecting: '接続中…',
+  nico_preview_connected: '接続中',
+  nico_preview_error: 'エラー',
+  nico_account_status: 'ニコニコアカウント:',
+  nico_account_logged_in: 'ログイン済み',
+  nico_account_not_logged_in: '未ログイン',
+  nico_show_comments: 'ニコ生コメント表示',
+  nico_comments_on: 'コメントON',
+  nico_comments_off: 'コメントOFF',
+  nico_broadcast_info: '配信情報:',
+  nico_viewer_count: '視聴者: {count}人',
+  nico_viewer_count_title: 'ニコ生視聴者数',
+  nico_badge: 'N',
+  nico_broadcast_ended: '配信終了',
+  nico_broadcast_waiting: '配信待機中',
+
   // --- SNSシェア ---
   sns_share_text: 'SNSでのシェアのほどよろしくお願いします！',
   sns_share_content: '#ネトフリで実況 - Netflixでみんなとコメントしよう！\nニコニコ風のコメントが楽しめるChrome拡張機能！\n是非一度お試しください → ',
