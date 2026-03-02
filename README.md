@@ -8,47 +8,55 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.0.2-E50914" alt="Version">
+  <img src="https://img.shields.io/badge/chrome-MV3-4285F4" alt="Manifest V3">
   <img src="https://img.shields.io/badge/license-BSL--1.1-blue" alt="License">
   <a href="https://github.com/keigoly/netflix-jikkyo/stargazers"><img src="https://img.shields.io/github/stars/keigoly/netflix-jikkyo?style=social" alt="Stars"></a>
 </p>
 
+<p align="center">
+  <a href="https://chromewebstore.google.com/detail/cnegfiegbdnjkpnmbdnnngbnlejfeikk">Chrome Web Store からインストール</a>
+</p>
+
 ---
 
-Netflix Jikkyo は、Netflix の視聴画面にニコニコ風のコメントをリアルタイムで流せる Chrome 拡張機能です。同じ作品を観ている人と一緒に盛り上がろう。
+Netflix Jikkyo は、Netflix の視聴画面にニコニコ風の弾幕コメントをリアルタイムで流せる Chrome 拡張機能です。同じ作品を観ている人と一緒に盛り上がろう。
 
-- サーバーを使わない P2P 通信だから、コメントデータが外部に保存されることはありません
-- インストールするだけ。設定不要で、すぐに使い始められます
-- Netflix ライブ配信にも対応
+- サーバーを使わない **P2P 通信** — コメントデータが外部に保存されることはありません
+- **インストールするだけ** — 設定不要で、すぐに使い始められます
+- **Netflix ライブ配信**にも対応
+- **ニコニコ生放送連携** — ニコ生のコメントを Netflix 画面にリアルタイム表示
 
 ## 機能
 
-- **弾幕コメント** — 画面を流れるコメントで、みんなとリアルタイムに実況
-- **ライブ配信対応** — Netflix のライブイベントでもリアルタイム実況が可能
-- **ニコニコ連携** — ニコニコ生放送のコメントを Netflix 画面に表示
-- **サイドパネル** — コメント一覧・作品情報をサイドバーで確認
-- **NG フィルター** — 見たくないコメントやユーザーをブロック
-- **多言語対応** — 日本語 / English / 한국어 / Čeština / 繁體中文
-- **カスタマイズ** — 速度・透明度・フォント・サイズを自由に調整
-- **ポップアウト** — サイドパネルを独立ウィンドウに切り離し
-
-## スクリーンショット
-
-<!-- TODO: スクリーンショットを追加 -->
+| 機能 | 説明 |
+|---|---|
+| **弾幕コメント** | 画面を流れるコメントで、みんなとリアルタイムに実況 |
+| **ライブ配信対応** | Netflix のライブイベント (`/live/*`, `/event/*`) でもリアルタイム実況 |
+| **ニコニコ生放送連携** | ニコ生のコメントを Netflix 画面に表示。サイドパネルから接続/表示を切替 |
+| **サイドパネル** | コメント一覧・作品情報・統計をサイドバーで確認 |
+| **NG フィルター** | コメント・コマンド・ユーザー ID 単位でブロック |
+| **多言語対応** | 日本語 / English / 한국어 / Čeština / 繁體中文 |
+| **カスタマイズ** | 速度・透明度・フォント・サイズ・背景モードを自由に調整 |
+| **ポップアウト** | サイドパネルを独立ウィンドウに切り離し |
+| **SNS シェア** | X, LINE, Facebook, Threads, Reddit でワンクリック共有 |
 
 ## インストール
 
-<!-- TODO: Chrome Web Store リンク -->
-**Chrome Web Store で公開予定**
-
-<!--
-[Chrome Web Store からインストール](https://chrome.google.com/webstore/detail/...)
--->
+[**Chrome Web Store からインストール**](https://chromewebstore.google.com/detail/cnegfiegbdnjkpnmbdnnngbnlejfeikk)
 
 ## 使い方
 
 1. **Netflix で作品を再生** — 拡張機能が自動的に同じ作品の視聴者とつなぎます
-2. **コメントを入力** — 画面下部の入力バーからコメントを送信
-3. **サイドパネルで管理** — Chrome サイドバーからコメント一覧や設定を確認
+2. **コメントを入力** — サイドパネル下部の入力バーからコメントを送信
+3. **サイドパネルで管理** — Chrome サイドバーからコメント一覧・設定・NG フィルターを確認
+4. **ニコ生連携** — サイドパネルの「ニコ生連携」セクションから接続し、ニコ生コメントをリアルタイム表示
+
+## v1.0.2 の主な変更
+
+- **ニコニコ生放送コメントブリッジ** — ニコ生のコメントを NDGR プロトコル経由でリアルタイム取得し、Netflix 画面に弾幕表示
+- **Netflix ライブ配信対応** — `/live/*`, `/event/*` URL パターンに対応
+- **タイトル別機能フラグ** — Cloudflare Worker から配信する機能フラグでブリッジ対象タイトルを制御
+- **サイドパネル UI 改善** — コメント列の固定幅化・中央揃え表示
 
 ## プライバシー
 
@@ -62,5 +70,6 @@ Netflix Jikkyo は、Netflix の視聴画面にニコニコ風のコメントを
 
 ## リンク
 
+- [Chrome Web Store](https://chromewebstore.google.com/detail/cnegfiegbdnjkpnmbdnnngbnlejfeikk)
 - [不具合報告](https://docs.google.com/forms/d/e/1FAIpQLSdp-n-dh0VNvIqF4bKKbcsCOKDFswcsFNV_dGxDjX14I6FVDA/viewform)
 - [プライバシーポリシー](PRIVACY_POLICY.md) / [Privacy Policy](PRIVACY_POLICY.en.md)
