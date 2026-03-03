@@ -258,6 +258,14 @@ export interface NicoBridgePostRequest {
   text: string;
 }
 
+/** 広告オーバーレイ設定 */
+export interface AdConfig {
+  enabled: boolean;
+  linkUrl: string | null;
+  dismissSec: number;  // 0 = 手動閉じのみ
+  variant: number;     // 1-3: ゆーちゃん画像バリアント
+}
+
 /** リモート機能フラグ (Cloudflare Workers から取得) */
 export interface FeatureFlags {
   liveRelay: boolean;
@@ -266,6 +274,7 @@ export interface FeatureFlags {
   announcement: string | null;
   minVersion: string | null;
   nicoBridge: NicoBridgeConfig;
+  ad: AdConfig;
 }
 
 export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
@@ -275,6 +284,7 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   announcement: null,
   minVersion: null,
   nicoBridge: { enabled: false, lvId: null },
+  ad: { enabled: false, linkUrl: null, dismissSec: 0, variant: 1 },
 };
 
 /** コメント本文の最大文字数 */

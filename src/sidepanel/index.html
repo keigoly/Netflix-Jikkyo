@@ -631,6 +631,34 @@
       <div class="comment-list" id="comment-list"></div>
       <button class="scroll-btn hidden" id="scroll-btn" data-i18n="comment_scroll_btn">↓ 新しいコメント</button>
 
+      <!-- 広告オーバーレイ -->
+      <div class="nfjk-ad-overlay hidden" id="ad-overlay">
+        <div class="nfjk-ad-blur"></div>
+        <div class="nfjk-ad-rainbow">
+          <div class="nfjk-ad-card">
+            <button class="nfjk-ad-close" id="ad-close-btn" aria-label="Close">&#x2715;</button>
+            <div class="nfjk-ad-visual">
+              <img src="../../public/icons/urayomi-logo.png" alt="ウラヨミ！" class="nfjk-ad-logo" draggable="false">
+              <img src="../../public/icons/urayomi-yuchan.png" alt="" class="nfjk-ad-yuchan" data-variant="1" draggable="false">
+              <img src="../../public/icons/urayomi-yuchan-2.png" alt="" class="nfjk-ad-yuchan nfjk-ad-yuchan-2 hidden" data-variant="2" draggable="false">
+              <img src="../../public/icons/urayomi-yuchan-3.png" alt="" class="nfjk-ad-yuchan nfjk-ad-yuchan-3 hidden" data-variant="3" draggable="false">
+            </div>
+            <div class="nfjk-ad-body">
+              <p class="nfjk-ad-copy">YouTubeのコメント欄を全て丸っとお見通しする<br>ただ一つの拡張機能！<strong>『ウラヨミ！』</strong><br>Chrome Web Storeへアクセス！</p>
+              <a class="nfjk-ad-cta" id="ad-cta-btn"
+                 href="https://chromewebstore.google.com/detail/ウラヨミ！-powered-by-google-g/mhgmmpapgdegmimfdgmanbdakeopmojn"
+                 target="_blank" rel="noopener noreferrer">
+                <img src="../../public/icons/chrome-webstore.png" alt="" class="nfjk-ad-cta-icon" draggable="false">
+                <span class="nfjk-ad-cta-text">
+                  <span class="nfjk-ad-cta-sub">Available on</span>
+                  <span class="nfjk-ad-cta-main">Chrome Web Store</span>
+                </span>
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- バックドロップ (メニュー/ポップアップの背面) -->
       <div class="nfjk-backdrop hidden" id="backdrop"></div>
 

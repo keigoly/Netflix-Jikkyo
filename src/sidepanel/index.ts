@@ -96,6 +96,11 @@ const ngAddBtn = document.getElementById('ng-add-btn') as HTMLButtonElement;
 const ngItems = document.getElementById('ng-items') as HTMLDivElement;
 const ngEmpty = document.getElementById('ng-empty') as HTMLDivElement;
 
+// 広告オーバーレイ要素
+const adOverlay = document.getElementById('ad-overlay') as HTMLDivElement;
+const adCloseBtn = document.getElementById('ad-close-btn') as HTMLButtonElement;
+const adCtaBtn = document.getElementById('ad-cta-btn') as HTMLAnchorElement;
+
 // バッファ関連DOM要素
 const newCommentsBar = document.getElementById('new-comments-bar') as HTMLButtonElement;
 
@@ -1876,6 +1881,8 @@ chrome.runtime.onMessage.addListener((message: any) => {
       return;
     }
     handleTabChanged(message.url, message.tabId, message.reason);
+  } else if (message.type === 'feature-flags-updated') {
+    handleAdConfig(message.flags?.ad);
   }
 });
 
@@ -2414,6 +2421,64 @@ chrome.runtime.sendMessage({ type: 'nico-oauth-status' }, (res) => {
     updateNicoLinkUI(true);
   }
 });
+
+// --- 広告オーバーレイ ---
+
+let adDismissed = false;
+let adDismissTimer: ReturnType<typeof setTimeout> | null = null;
+let adLastVariant = 0;
+
+function handleAdConfig(ad?: { enabled: boolean; linkUrl: string | null; dismissSec: number; variant?: number }): void {
+  if (!ad || !ad.enabled) {
+    adOverlay.classList.add('hidden');
+    adDismissed = false;
+    adLastVariant = 0;
+    if (adDismissTimer) { clearTimeout(adDismissTimer); adDismissTimer = null; }
+    return;
+  }
+
+  // variant が変わったら dismissed をリセット (イニング間の再表示用)
+  const variant = ad.variant || 1;
+  if (variant !== adLastVariant) {
+    adDismissed = false;
+    adLastVariant = variant;
+  }
+
+  // ユーザーが閉じた場合は同じ variant では再表示しない
+  if (adDismissed) return;
+
+  if (ad.linkUrl) {
+    adCtaBtn.href = ad.linkUrl;
+  }
+
+  // バリアント切り替え
+  adOverlay.querySelectorAll<HTMLImageElement>('.nfjk-ad-yuchan').forEach((img) => {
+    const v = parseInt(img.dataset.variant || '1', 10);
+    img.classList.toggle('hidden', v !== variant);
+  });
+
+  adOverlay.classList.remove('hidden');
+
+  // 自動閉じタイマー
+  if (adDismissTimer) { clearTimeout(adDismissTimer); adDismissTimer = null; }
+  if (ad.dismissSec > 0) {
+    adDismissTimer = setTimeout(() => {
+      adOverlay.classList.add('hidden');
+      adDismissed = true;
+    }, ad.dismissSec * 1000);
+  }
+}
+
+adCloseBtn.addEventListener('click', () => {
+  adOverlay.classList.add('hidden');
+  adDismissed = true;
+  if (adDismissTimer) { clearTimeout(adDismissTimer); adDismissTimer = null; }
+});
+
+// 60秒ポーリング: サイドパネルは永続ページなので setInterval が安定して動作する
+setInterval(() => {
+  chrome.runtime.sendMessage({ type: 'refresh-config' });
+}, 60_000);
 
 // --- 初期化 ---
 

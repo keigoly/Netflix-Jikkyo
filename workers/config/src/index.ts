@@ -30,6 +30,10 @@ interface Env {
   NICO_BRIDGE_TITLE_IDS: string;
   NICO_OAUTH_CLIENT_ID: string;
   NICO_OAUTH_CLIENT_SECRET: string;
+  AD_ENABLED: string;
+  AD_LINK_URL: string;
+  AD_DISMISS_SEC: string;
+  AD_VARIANT: string;
 }
 
 export default {
@@ -112,6 +116,12 @@ export default {
             : [],
           clientId: env.NICO_OAUTH_CLIENT_ID || undefined,
           clientSecret: env.NICO_OAUTH_CLIENT_SECRET || undefined,
+        },
+        ad: {
+          enabled: env.AD_ENABLED === 'true',
+          linkUrl: env.AD_LINK_URL || null,
+          dismissSec: parseInt(env.AD_DISMISS_SEC, 10) || 0,
+          variant: parseInt(env.AD_VARIANT, 10) || 1,
         },
       };
 

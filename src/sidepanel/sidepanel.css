@@ -2920,6 +2920,188 @@ body.nfjk-bg-light .nfjk-nico-connect-btn.linked:hover {
   background: rgba(229, 9, 20, 0.04);
 }
 
+/* ===== 広告オーバーレイ ===== */
+@keyframes nfjk-rainbow-border {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 300% 50%; }
+}
+
+@keyframes nfjk-bounceIn {
+  0% { opacity: 0; transform: scale3d(0.3, 0.3, 0.3); }
+  20% { transform: scale3d(1.1, 1.1, 1.1); }
+  40% { transform: scale3d(0.9, 0.9, 0.9); }
+  60% { opacity: 1; transform: scale3d(1.03, 1.03, 1.03); }
+  80% { transform: scale3d(0.97, 0.97, 0.97); }
+  100% { opacity: 1; transform: scale3d(1, 1, 1); }
+}
+
+@keyframes nfjk-fadeSlideUp {
+  0% { opacity: 0; transform: translateY(12px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.nfjk-ad-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 29;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nfjk-ad-blur {
+  position: absolute;
+  inset: 0;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  background: rgba(0, 0, 0, 0.4);
+}
+
+/* 虹色ボーダーラッパー */
+.nfjk-ad-rainbow {
+  position: relative;
+  width: 90%;
+  max-width: 320px;
+  padding: 2px;
+  border-radius: 14px;
+  background: linear-gradient(90deg, #0000FF, #00FFFF, #00FF00, #FFFF00, #FF8C00, #FF0000, #0000FF, #00FFFF, #00FF00, #FFFF00, #FF8C00, #FF0000, #0000FF);
+  background-size: 300% 100%;
+  animation: nfjk-rainbow-border 12s linear infinite;
+}
+
+.nfjk-ad-card {
+  position: relative;
+  background: #1a1a1a;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.nfjk-ad-visual {
+  width: 100%;
+  padding: 16px 16px 0;
+  background: radial-gradient(ellipse at 50% 30%, #1a1a3e 0%, #0d0d1a 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.nfjk-ad-logo {
+  width: 85%;
+  display: block;
+  object-fit: contain;
+  opacity: 0;
+  filter: drop-shadow(0 0 20px rgba(180, 140, 255, 0.4)) drop-shadow(0 0 40px rgba(100, 160, 255, 0.2));
+  animation: nfjk-bounceIn 0.75s cubic-bezier(0.215, 0.61, 0.355, 1) forwards;
+}
+
+.nfjk-ad-yuchan {
+  width: 55%;
+  max-height: 200px;
+  display: block;
+  object-fit: contain;
+  opacity: 0;
+  filter: drop-shadow(0 0 16px rgba(255, 200, 100, 0.35)) drop-shadow(0 4px 12px rgba(0, 0, 0, 0.5));
+  animation: nfjk-bounceIn 0.75s cubic-bezier(0.215, 0.61, 0.355, 1) 0.2s forwards;
+}
+
+.nfjk-ad-yuchan-2 {
+  width: 70%;
+}
+
+.nfjk-ad-yuchan-3 {
+  width: 40%;
+  max-height: 220px;
+}
+
+.nfjk-ad-body {
+  padding: 8px 16px 16px;
+  opacity: 0;
+  animation: nfjk-fadeSlideUp 0.5s ease-out 0.4s forwards;
+}
+
+.nfjk-ad-copy {
+  font-size: 11px;
+  line-height: 1.6;
+  color: #aaa;
+  text-align: center;
+  margin-bottom: 12px;
+}
+
+.nfjk-ad-copy strong {
+  color: #fff;
+  font-weight: 700;
+}
+
+/* Google Play バッジ風 CTA */
+.nfjk-ad-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 16px;
+  background: #000;
+  border: 1px solid #a6a6a6;
+  color: #fff;
+  text-decoration: none;
+  border-radius: 8px;
+  transition: background 0.2s;
+}
+
+.nfjk-ad-cta:hover {
+  background: #222;
+}
+
+.nfjk-ad-cta-icon {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+}
+
+.nfjk-ad-cta-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.nfjk-ad-cta-sub {
+  font-size: 9px;
+  color: #ccc;
+  letter-spacing: 0.02em;
+}
+
+.nfjk-ad-cta-main {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.nfjk-ad-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 2;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s;
+}
+
+.nfjk-ad-close:hover {
+  background: #E50914;
+}
+
 /* ===== hidden ユーティリティ ===== */
 .hidden {
   display: none !important;
