@@ -10,6 +10,9 @@ interface DanmakuOptions {
 
 type TunnelMap = { [key: string]: HTMLElement[] };
 
+/** 同時に画面上に存在できる弾幕要素の上限 (パフォーマンス保護) */
+const MAX_ACTIVE_DANMAKU = 50;
+
 export class DanmakuRenderer {
   private container: HTMLElement;
   private settings: Settings;
@@ -18,6 +21,7 @@ export class DanmakuRenderer {
   private context: CanvasRenderingContext2D | null = null;
   private showing = true;
   private paused = false;
+  private activeCount = 0;
 
   constructor(options: DanmakuOptions) {
     this.container = options.container;
@@ -121,12 +125,14 @@ export class DanmakuRenderer {
         el.classList.add('nfjk-danmaku-admin');
         el.textContent = item.text;
         el.addEventListener('animationend', () => {
+          this.activeCount--;
           el.remove();
         });
         el.classList.add('nfjk-danmaku-move');
         el.style.animationDuration = '5s';
         this.container.style.setProperty('--nfjk-danmaku-font-size', `${baseFontSize}px`);
         docFragment.appendChild(el);
+        this.activeCount++;
         continue;
       }
 
@@ -143,14 +149,20 @@ export class DanmakuRenderer {
       const lines = item.text.split('\n');
 
       for (const line of lines) {
+        // 画面上の弾幕数が上限を超えている場合はスキップ (自分のコメントは常に表示)
+        if (!item.mine && this.activeCount >= MAX_ACTIVE_DANMAKU) {
+          break;
+        }
+
         const el = document.createElement('div');
         el.classList.add('nfjk-danmaku-item', 'nfjk-danmaku-right');
         if (item.mine) el.classList.add('nfjk-danmaku-mine');
         el.style.color = COMMENT_COLOR;
         el.textContent = line;
 
-        // animationend でDOM削除
+        // animationend でDOM削除 + カウンター減算
         el.addEventListener('animationend', () => {
+          this.activeCount--;
           el.remove();
         });
 
@@ -164,6 +176,7 @@ export class DanmakuRenderer {
           el.classList.add('nfjk-danmaku-move');
           el.style.animationDuration = this._getAnimationDuration();
           docFragment.appendChild(el);
+          this.activeCount++;
         }
       }
 
@@ -201,6 +214,7 @@ export class DanmakuRenderer {
   /** 弾幕コンテナをクリアする */
   clear(): void {
     this.danTunnel = {};
+    this.activeCount = 0;
     while (this.container.firstChild) {
       this.container.removeChild(this.container.firstChild);
     }

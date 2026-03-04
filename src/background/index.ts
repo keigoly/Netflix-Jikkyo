@@ -287,6 +287,36 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     fetchFeatureFlags();
     return;
   }
+  // コンテンツスクリプト生存確認 + 必要なら再注入 (サイドパネル開閉リカバリ)
+  if (message.type === 'ensure-content-script') {
+    const tabId = message.tabId as number | undefined;
+    if (!tabId) { sendResponse({ ok: false }); return; }
+    (async () => {
+      try {
+        const pong = await chrome.tabs.sendMessage(tabId, { type: 'ping' }).catch(() => null);
+        if (pong === 'pong') {
+          sendResponse({ ok: true, injected: false });
+          return;
+        }
+        log('[Netflix Jikkyo] Content script not responding, re-injecting...');
+        await chrome.scripting.insertCSS({
+          target: { tabId },
+          files: ['content-bundle.css'],
+        }).catch(() => {});
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ['content-bundle.js'],
+          world: 'ISOLATED' as chrome.scripting.ExecutionWorld,
+        });
+        log(`[Netflix Jikkyo] Content script re-injected into tab ${tabId}`);
+        sendResponse({ ok: true, injected: true });
+      } catch (e) {
+        warn('[Netflix Jikkyo] Content script re-injection failed:', e);
+        sendResponse({ ok: false });
+      }
+    })();
+    return true; // 非同期レスポンス
+  }
   // ニコ生ブリッジ状態取得
   if (message.type === 'get-nico-bridge-state') {
     sendResponse(lastNicoBridgeState);

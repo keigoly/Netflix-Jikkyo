@@ -1635,6 +1635,17 @@ function updateTitleInfo(metadata: TitleMetadata): void {
 async function reloadTitleAndComments(): Promise<void> {
   titleReloadBtn.classList.add('spinning');
   try {
+    // コンテンツスクリプト生存確認 → 死んでいたら再注入
+    try {
+      const tab = await findNetflixTab();
+      if (tab?.id !== undefined) {
+        const result = await chrome.runtime.sendMessage({ type: 'ensure-content-script', tabId: tab.id });
+        if (result?.injected) {
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+    } catch { /* 無視 */ }
+
     let metadataLoaded = false;
 
     // リトライ付きでタイトル情報取得 (コンテンツスクリプト初期化待ち)
@@ -1644,7 +1655,7 @@ async function reloadTitleAndComments(): Promise<void> {
         if (tab?.id !== undefined) {
           // URL からタイトルID更新
           if (tab.url) {
-            const match = tab.url.match(/netflix\.com\/watch\/(\d+)/);
+            const match = tab.url.match(/netflix\.com\/(?:watch|live|event)\/(\d+)/);
             if (match) currentTitleId = match[1];
           }
 
@@ -1948,7 +1959,17 @@ async function initMainUI(): Promise<void> {
     await updateStatus();
     await loadPastComments();
   } else {
-    // 通常サイドパネル
+    // 通常サイドパネル: コンテンツスクリプト生存確認 → 死んでいたら再注入
+    try {
+      const tab = await findNetflixTab();
+      if (tab?.id !== undefined) {
+        const result = await chrome.runtime.sendMessage({ type: 'ensure-content-script', tabId: tab.id });
+        if (result?.injected) {
+          // 再注入後はコンテンツスクリプトの初期化を待つ
+          await new Promise((r) => setTimeout(r, 2000));
+        }
+      }
+    } catch { /* 無視 */ }
     await updateStatus();
     await requestTitleInfo();
     await loadPastComments();

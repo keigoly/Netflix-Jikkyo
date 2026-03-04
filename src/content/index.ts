@@ -369,15 +369,19 @@ function onVideoTimeUpdate(): void {
   }
   lastVideoTime = currentTime;
 
-  // 現在時刻までのコメントを描画
+  // 現在時刻までのコメントを描画 (1回のtimeupdateで最大10件)
+  const PAST_DANMAKU_BATCH_LIMIT = 10;
+  let drawn = 0;
   while (pastDanmakuIndex < pastDanmakuComments.length) {
     const c = pastDanmakuComments[pastDanmakuIndex];
     const vt = c.videoTime || 0;
     if (vt <= currentTime) {
       // 2秒以内のコメントのみ描画 (遠い過去は飛ばす)
       if (currentTime - vt < 2) {
+        if (drawn >= PAST_DANMAKU_BATCH_LIMIT) break;
         const isMine = !!currentUserId && c.userId === currentUserId;
         danmaku.draw({ text: c.text, mine: isMine });
+        drawn++;
       }
       pastDanmakuIndex++;
     } else {
@@ -684,10 +688,9 @@ function enqueueNicoDanmaku(item: DanmakuItem): void {
     return;
   }
   nicoDanmakuDripQueue.push(item);
-  // キュー上限超過 → 一括フラッシュ (過負荷時の安全弁)
+  // キュー上限超過 → 古いコメントを破棄 (過負荷時の安全弁)
   if (nicoDanmakuDripQueue.length > DANMAKU_DRIP_MAX_QUEUE) {
-    flushNicoDanmakuDrip();
-    return;
+    nicoDanmakuDripQueue.splice(0, nicoDanmakuDripQueue.length - DANMAKU_DRIP_MAX_QUEUE);
   }
   // ドレインが未起動なら遅延開始 (バッチ蓄積待ち)
   // ※ 同期的に drain するとメッセージが1件ずつ即座に描画されてバーストする
