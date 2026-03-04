@@ -128,7 +128,7 @@ export default {
       return new Response(JSON.stringify(config), {
         headers: {
           'Content-Type': 'application/json',
-          'Cache-Control': 'public, max-age=60',
+          'Cache-Control': 'public, max-age=15',
           ...corsHeaders(),
         },
       });

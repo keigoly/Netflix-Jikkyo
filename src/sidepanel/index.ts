@@ -2496,10 +2496,10 @@ adCloseBtn.addEventListener('click', () => {
   if (adDismissTimer) { clearTimeout(adDismissTimer); adDismissTimer = null; }
 });
 
-// 60秒ポーリング: サイドパネルは永続ページなので setInterval が安定して動作する
+// 30秒ポーリング: サイドパネルは永続ページなので setInterval が安定して動作する
 setInterval(() => {
   chrome.runtime.sendMessage({ type: 'refresh-config' });
-}, 60_000);
+}, 30_000);
 
 // --- 初期化 ---
 
