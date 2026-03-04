@@ -7,7 +7,7 @@
 <p align="center"><strong>Netflix でみんなとコメントしよう</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.2-E50914" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.0.3-E50914" alt="Version">
   <img src="https://img.shields.io/badge/chrome-MV3-4285F4" alt="Manifest V3">
   <img src="https://img.shields.io/badge/license-BSL--1.1-blue" alt="License">
   <a href="https://github.com/keigoly/netflix-jikkyo/stargazers"><img src="https://img.shields.io/github/stars/keigoly/netflix-jikkyo?style=social" alt="Stars"></a>
@@ -51,12 +51,11 @@ Netflix Jikkyo は、Netflix の視聴画面にニコニコ風の弾幕コメン
 3. **サイドパネルで管理** — Chrome サイドバーからコメント一覧・設定・NG フィルターを確認
 4. **ニコ生連携** — サイドパネルの「ニコ生連携」セクションから接続し、ニコ生コメントをリアルタイム表示
 
-## v1.0.2 の主な変更
+## v1.0.3 の主な変更
 
-- **ニコニコ生放送コメントブリッジ** — ニコ生のコメントを NDGR プロトコル経由でリアルタイム取得し、Netflix 画面に弾幕表示
-- **Netflix ライブ配信対応** — `/live/*`, `/event/*` URL パターンに対応
-- **タイトル別機能フラグ** — Cloudflare Worker から配信する機能フラグでブリッジ対象タイトルを制御
-- **サイドパネル UI 改善** — コメント列の固定幅化・中央揃え表示
+- **パフォーマンス改善** — 大量コメント受信時の描画を最適化し、スムーズな視聴体験を実現
+- **接続安定性向上** — サイドパネル開閉時の自動復旧機能を追加
+- **設定反映の高速化** — リモート設定の同期間隔を短縮
 
 ## プライバシー
 
