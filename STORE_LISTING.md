@@ -1,4 +1,4 @@
-# Chrome Web Store — 商品説明 (v1.0.3)
+# Chrome Web Store — 商品説明 (v1.0.4)
 
 > このファイルは Chrome Web Store デベロッパーダッシュボードの「商品説明」欄に貼り付ける用のテキストです。
 
@@ -65,12 +65,15 @@ Netflix Jikkyoは、サーバーを介さないP2P (ピアツーピア) 通信�
 
 
 ━━━━━━━━━━━━━━━━━━━━
-  v1.0.3 アップデート
+  v1.0.4 アップデート
 ━━━━━━━━━━━━━━━━━━━━
 
-・大量コメント受信時のパフォーマンスを改善
-・サイドパネル開閉時の接続安定性を向上
-・コメント描画の最適化によりスムーズな視聴体験を実現
+・ニコ生ユーザーの識別性を向上 (nico#1, nico#2... 形式の連番表示)
+・アーカイブ再生時のサイドパネルが再生位置に正しく連動するように修正
+・追っかけ再生時のサイドパネル再生位置連動に対応
+・アーカイブ再生時にニコ生リアルタイムコメントが流れないように修正
+・ピア接続時のコメント一覧フラッシュを解消
+・ニコ生コメント表示の安定性を向上
 
 ---
 
@@ -135,9 +138,12 @@ All settings and Niconico integration are accessible from the side panel. No com
 
 
 ━━━━━━━━━━━━━━━━━━━━
-  What's New in v1.0.3
+  What's New in v1.0.4
 ━━━━━━━━━━━━━━━━━━━━
 
-- Improved performance during high-volume comment streams
-- Enhanced side panel connection stability
-- Optimized comment rendering for a smoother viewing experience
+- Improved Niconico user identification with sequential numbering (nico#1, nico#2...)
+- Fixed side panel not syncing with playback position during archive viewing
+- Added playback position tracking for catch-up viewing during live events
+- Prevented live Niconico comments from appearing during archive playback
+- Eliminated comment list flash when peers connect
+- Improved Niconico comment display stability

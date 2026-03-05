@@ -69,6 +69,26 @@ function getVideoCurrentTime(): number {
   return video ? video.currentTime : 0;
 }
 
+/** 動画がライブエッジ（リアルタイム視聴中）かどうかを判定する
+ * - /watch/ URLは常にアーカイブ（false）
+ * - /live/ /event/ URLで再生位置が末尾付近ならライブエッジ（true）
+ * - 追っかけ再生やアーカイブ再生ではfalse */
+function isVideoAtLiveEdge(): boolean {
+  // /watch/ URLは常にアーカイブ
+  if (/\/watch\//.test(location.pathname)) return false;
+  // /live/ /event/ のみライブの可能性あり
+  if (!/\/(?:live|event)\//.test(location.pathname)) return false;
+
+  const video = document.querySelector('video');
+  if (!video) return false;
+  // Infinite duration = ライブストリーミング
+  if (!isFinite(video.duration)) return true;
+  // Duration未ロード = ライブページではデフォルトtrue
+  if (video.duration <= 0) return true;
+  // 末尾30秒以内 = ライブエッジ
+  return (video.duration - video.currentTime) < 30;
+}
+
 async function loadSettings(): Promise<Settings> {
   return new Promise((resolve) => {
     chrome.storage.sync.get('settings', (result) => {
@@ -355,6 +375,7 @@ function onVideoTimeUpdate(): void {
       type: 'video-time-update',
       videoTime: currentTime,
       paused: video.paused,
+      isAtLiveEdge: isVideoAtLiveEdge(),
     }).catch(() => {});
   }
 
@@ -509,6 +530,10 @@ async function initialize(): Promise<void> {
         if (nicoBridgeHasSession) return;
         // 非連携ユーザーは設定に従う
         if (settings.showNicoComments === false) return;
+        // アーカイブ/追っかけ再生時はリアルタイムのニコ生コメントを表示しない
+        if (!isVideoAtLiveEdge()) return;
+        // ブリッジ機能が無効の場合はP2P経由のニコ生コメントも表示しない
+        if (!featureFlags.nicoBridge?.enabled) return;
         // 重複排除 (IDベース)
         if (receivedNicoCommentIds.has(msg.id)) return;
         receivedNicoCommentIds.add(msg.id);
@@ -743,6 +768,8 @@ function flushNicoDanmakuDrip(): void {
 function handleNicoBridgeComment(msg: NicoBridgeCommentMessage): void {
   // コメント表示OFFなら無視 (連携ユーザーでもOFF)
   if (settings.showNicoComments === false) return;
+  // アーカイブ/追っかけ再生時はリアルタイムのニコ生コメントを表示しない
+  if (!isVideoAtLiveEdge()) return;
 
   // 重複排除 (IDベース)
   if (receivedNicoCommentIds.has(msg.id)) return;

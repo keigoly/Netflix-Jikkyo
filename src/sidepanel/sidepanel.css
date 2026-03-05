@@ -2717,7 +2717,12 @@ body.nfjk-bg-light .nfjk-sns-icon:hover {
 
 /* ===== ニコ生連携 ===== */
 
-/* ニコ生バッジ (コメント行) */
+/* ニコ生ユーザー名 (nico#N 形式) */
+.nfjk-nico-user {
+  color: #f5a623;
+}
+
+/* レガシー: ニコ生バッジ (コメント行) */
 .nfjk-nico-badge {
   color: #E50914;
   font-size: 9px;

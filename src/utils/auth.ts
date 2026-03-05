@@ -191,6 +191,14 @@ export function validateNickname(name: string): NicknameValidation {
   if (containsNGWord(trimmed)) {
     return { valid: false, error: t('nickname_ng_word') };
   }
+  // ニコ生ユーザーと紛らわしい名前を禁止
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('nico#') || lower.startsWith('nico＃')) {
+    return { valid: false, error: t('nickname_ng_word') };
+  }
+  if (trimmed.includes('ニコ生') || lower.includes('niconico') || lower.includes('nicolive')) {
+    return { valid: false, error: t('nickname_ng_word') };
+  }
   return { valid: true };
 }
 
