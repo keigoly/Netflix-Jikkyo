@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS, type Settings } from '../types';
 import { getTitleList } from '../content/storage';
 import { clearElement } from '../utils/sanitize';
 import { t, setLocale, applyTranslations } from '../i18n';
+import { isContentPageUrl } from '../utils/url-patterns';
 
 // --- 設定読み込み・保存 ---
 
@@ -152,7 +153,7 @@ async function updateStatus(): Promise<void> {
 
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.url?.includes('netflix.com/watch/')) {
+    if (isContentPageUrl(tab?.url)) {
       dot.classList.add('connected');
       statusText.textContent = t('popup_status_connected');
 

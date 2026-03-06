@@ -4,6 +4,7 @@
 import type { FeatureFlags, NicoBridgeCommentMessage, NicoBridgeStateMessage } from '../types';
 import { DEFAULT_FEATURE_FLAGS } from '../types';
 import { log, warn } from '../utils/logger';
+import { CONTENT_TAB_PATTERNS } from '../utils/url-patterns';
 import { NicoBridge } from './nico-bridge';
 import { startNicoOAuth, loadNicoToken, clearNicoToken, type NicoOAuthConfig } from './nico-auth';
 
@@ -81,7 +82,7 @@ let lastNicoBridgeState: NicoBridgeStateMessage | null = null;
 let cachedNicoOAuthConfig: NicoOAuthConfig | null = null;
 
 function sendToNetflixTabs(message: NicoBridgeCommentMessage | NicoBridgeStateMessage): void {
-  chrome.tabs.query({ url: ['https://www.netflix.com/watch/*', 'https://www.netflix.com/live/*', 'https://www.netflix.com/event/*'] }, (tabs) => {
+  chrome.tabs.query({ url: CONTENT_TAB_PATTERNS }, (tabs) => {
     for (const tab of tabs) {
       if (tab.id) {
         chrome.tabs.sendMessage(tab.id, message).catch(() => {});

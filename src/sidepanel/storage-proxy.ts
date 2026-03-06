@@ -2,16 +2,17 @@
 // Licensed under the Business Source License 1.1
 
 import type { Comment } from '../types';
+import { CONTENT_TAB_PATTERNS, isContentPageUrl } from '../utils/url-patterns';
 
 /** アクティブな Netflix watch タブを取得する */
 async function getNetflixTab(): Promise<chrome.tabs.Tab | null> {
   const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
   const tab = tabs[0];
-  if (tab?.id !== undefined && tab.url?.includes('netflix.com/watch/')) {
+  if (tab?.id !== undefined && isContentPageUrl(tab.url)) {
     return tab;
   }
   // アクティブタブがNetflixでない場合、全タブから探す
-  const netflixTabs = await chrome.tabs.query({ url: '*://*.netflix.com/watch/*' });
+  const netflixTabs = await chrome.tabs.query({ url: CONTENT_TAB_PATTERNS });
   return netflixTabs[0] ?? null;
 }
 

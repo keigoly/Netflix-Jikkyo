@@ -9,6 +9,7 @@ import { isNGComment } from '../utils/ng-filter';
 import { clearElement } from '../utils/sanitize';
 import { t, setLocale, getLocale, onLocaleChange, applyTranslations, LOCALE_OPTIONS } from '../i18n';
 import { log, warn } from '../utils/logger';
+import { CONTENT_TAB_PATTERNS, isContentPageUrl } from '../utils/url-patterns';
 
 const MAX_DOM_COMMENTS = 10000;
 
@@ -762,7 +763,7 @@ noNetflixGear.addEventListener('click', openSettings);
 async function findNetflixTab(): Promise<chrome.tabs.Tab | null> {
   if (isPopout) {
     // ポップアウト時: 全ウィンドウからNetflix watchタブを検索
-    const tabs = await chrome.tabs.query({ url: ['*://*.netflix.com/watch/*', '*://*.netflix.com/live/*', '*://*.netflix.com/event/*'] });
+    const tabs = await chrome.tabs.query({ url: CONTENT_TAB_PATTERNS });
     return tabs[0] ?? null;
   }
   // 通常サイドパネル: currentWindowのアクティブタブ
@@ -1273,7 +1274,8 @@ newCommentsBar.addEventListener('click', () => { flushCommentBuffer(); });
 // --- 接続ステータス ---
 
 function extractTitleId(url: string): string | null {
-  const match = url.match(/netflix\.com\/(?:watch|live|event)\/(\d+)/);
+  if (!isContentPageUrl(url)) return null;
+  const match = url.match(/\/(?:watch|live|event)\/(\d+)/);
   return match ? match[1] : null;
 }
 
@@ -1868,7 +1870,7 @@ function hideNoNetflix(): void {
 
 async function handleTabChanged(url: string, _tabId: number, reason: 'tab-switch' | 'url-change'): Promise<void> {
   const titleId = extractTitleId(url);
-  const isNetflix = /netflix\.com/i.test(url);
+  const isNetflix = isContentPageUrl(url) || /netflix\.com/i.test(url);
 
   if (!titleId) {
     if (isNetflix) {
@@ -1890,7 +1892,7 @@ async function handleTabChanged(url: string, _tabId: number, reason: 'tab-switch
     // タブ切替の場合、Netflix watchタブがまだ存在するなら状態を維持
     if (reason === 'tab-switch' && currentTitleId) {
       try {
-        const tabs = await chrome.tabs.query({ url: ['*://*.netflix.com/watch/*', '*://*.netflix.com/live/*', '*://*.netflix.com/event/*'] });
+        const tabs = await chrome.tabs.query({ url: CONTENT_TAB_PATTERNS });
         if (tabs.length > 0) return;
       } catch { /* fall through */ }
     }

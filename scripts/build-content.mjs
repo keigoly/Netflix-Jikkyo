@@ -19,6 +19,7 @@ await build({
   // idb, uuid, trystero は全てインライン化
   define: {
     'process.env.NODE_ENV': '"production"',
+    '__DEV_MOCK__': process.argv.includes('--mock') ? 'true' : 'false',
   },
   logLevel: 'info',
 });

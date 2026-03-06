@@ -9,6 +9,9 @@ client_secret_*.json
 # IDE / Tools
 .serena/
 
+# Dev mock
+dev-mock/node_modules/
+
 # Internal docs
 docs/
 CLAUDE.md

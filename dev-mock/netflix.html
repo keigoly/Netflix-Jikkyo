@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>テスト作品 | Netflix</title>
+  <meta property="og:title" content="テスト作品">
+  <meta name="description" content="開発テスト用のモックページです">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #141414; color: #fff; font-family: 'Helvetica Neue', Arial, sans-serif; overflow: hidden; }
+
+    /* Netflix プレイヤー構造を再現 */
+    .watch-video { position: relative; width: 100vw; height: 100vh; }
+    .watch-video--player-view {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+    }
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+      background: #000;
+    }
+
+    /* 開発コントロールパネル */
+    .dev-panel {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 999999;
+      background: rgba(20, 20, 20, 0.92);
+      backdrop-filter: blur(8px);
+      padding: 16px;
+      border-radius: 8px;
+      border: 1px solid #333;
+      font-size: 13px;
+      min-width: 240px;
+      user-select: none;
+    }
+    .dev-panel h3 {
+      color: #E50914;
+      margin-bottom: 10px;
+      font-size: 14px;
+      font-weight: 700;
+    }
+    .dev-panel .row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 6px 0;
+    }
+    .dev-panel label {
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dev-panel .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .badge-vod { background: #2563eb; }
+    .badge-live { background: #E50914; }
+    .badge-event { background: #9333ea; }
+
+    .dev-panel input[type="text"] {
+      background: #333;
+      border: 1px solid #555;
+      color: #fff;
+      padding: 4px 8px;
+      border-radius: 4px;
+      width: 100px;
+      font-size: 12px;
+    }
+    .dev-panel button {
+      background: #E50914;
+      color: #fff;
+      border: none;
+      padding: 5px 12px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .dev-panel button:hover { background: #f40612; }
+    .dev-panel button.secondary {
+      background: #444;
+    }
+    .dev-panel button.secondary:hover { background: #555; }
+    .dev-panel .info {
+      color: #888;
+      font-size: 11px;
+      margin-top: 10px;
+      line-height: 1.5;
+    }
+    .dev-panel hr {
+      border: none;
+      border-top: 1px solid #333;
+      margin: 10px 0;
+    }
+    .dev-panel .video-info {
+      color: #aaa;
+      font-size: 11px;
+      font-family: monospace;
+    }
+    .dev-panel .live-indicator {
+      color: #E50914;
+      font-weight: 700;
+      animation: blink 1s infinite;
+    }
+    @keyframes blink {
+      50% { opacity: 0.5; }
+    }
+    .dev-panel .collapse-btn {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      background: none;
+      color: #888;
+      font-size: 16px;
+      padding: 2px 6px;
+      cursor: pointer;
+    }
+    .dev-panel .collapse-btn:hover { color: #fff; background: none; }
+    .dev-panel.collapsed .panel-body { display: none; }
+  </style>
+</head>
+<body>
+
+  <!-- Netflix DOM 構造を再現 -->
+  <div class="watch-video">
+    <div class="watch-video--player-view" data-uia="video-canvas">
+      <video id="player" controls autoplay></video>
+    </div>
+  </div>
+
+  <!-- 開発コントロールパネル -->
+  <div class="dev-panel" id="devPanel">
+    <button class="collapse-btn" onclick="togglePanel()">-</button>
+    <h3>Dev Mock Controls</h3>
+    <div class="panel-body">
+
+      <!-- 現在の状態表示 -->
+      <div class="row">
+        <span class="badge" id="typeBadge">VOD</span>
+        <span>Title ID: <strong id="titleIdDisplay">-</strong></span>
+      </div>
+      <div class="video-info" id="videoInfo">--:-- / --:--</div>
+      <div id="liveIndicator" style="display:none">
+        <span class="live-indicator">LIVE</span>
+      </div>
+
+      <hr>
+
+      <!-- URL タイプ切替 -->
+      <div class="row">
+        <button onclick="navigateTo('watch')">watch</button>
+        <button onclick="navigateTo('live')">live</button>
+        <button onclick="navigateTo('event')">event</button>
+      </div>
+
+      <!-- タイトルID変更 -->
+      <div class="row">
+        <input type="text" id="titleIdInput" placeholder="Title ID">
+        <button class="secondary" onclick="changeTitleId()">Go</button>
+      </div>
+
+      <hr>
+
+      <!-- ライブシミュレーション -->
+      <div class="row">
+        <label>
+          <input type="checkbox" id="fakeLive" onchange="toggleFakeLive()">
+          duration = Infinity (ライブ偽装)
+        </label>
+      </div>
+      <div class="row">
+        <button class="secondary" onclick="seekToLiveEdge()">Live Edge へシーク</button>
+      </div>
+
+      <hr>
+
+      <!-- 動画ソース -->
+      <div class="row">
+        <select id="videoSource" onchange="changeVideoSource()" style="background:#333;color:#fff;border:1px solid #555;padding:4px;border-radius:4px;font-size:12px;flex:1">
+          <option value="bunny">Big Buck Bunny (10min)</option>
+          <option value="sintel">Sintel Trailer (1min)</option>
+          <option value="custom">Custom URL...</option>
+        </select>
+      </div>
+      <div class="row" id="customUrlRow" style="display:none">
+        <input type="text" id="customUrl" placeholder="Video URL" style="flex:1">
+        <button class="secondary" onclick="loadCustomVideo()">Load</button>
+      </div>
+
+      <div class="info">
+        Panel: <kbd>Ctrl+D</kbd> 表示切替<br>
+        拡張機能はこのページを Netflix として認識します
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // --- URL 解析 ---
+    const pathMatch = location.pathname.match(/\/(watch|live|event)\/(\d+)/);
+    const urlType = pathMatch ? pathMatch[1] : 'watch';
+    const titleId = pathMatch ? pathMatch[2] : '81234567';
+
+    // --- 動画ソース ---
+    const VIDEO_SOURCES = {
+      bunny: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4',
+      sintel: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4',
+    };
+
+    // --- 初期化 ---
+    const video = document.getElementById('player');
+    const typeBadge = document.getElementById('typeBadge');
+    const titleIdDisplay = document.getElementById('titleIdDisplay');
+    const titleIdInput = document.getElementById('titleIdInput');
+    const videoInfo = document.getElementById('videoInfo');
+    const liveIndicator = document.getElementById('liveIndicator');
+
+    // タイトル設定
+    document.title = `Mock Title ${titleId} | Netflix`;
+    titleIdDisplay.textContent = titleId;
+    titleIdInput.value = titleId;
+
+    // バッジ設定
+    const badgeConfig = {
+      watch: { text: 'VOD', cls: 'badge-vod' },
+      live:  { text: 'LIVE', cls: 'badge-live' },
+      event: { text: 'EVENT', cls: 'badge-event' },
+    };
+    const badge = badgeConfig[urlType] || badgeConfig.watch;
+    typeBadge.textContent = badge.text;
+    typeBadge.className = 'badge ' + badge.cls;
+
+    // 動画ロード
+    video.src = VIDEO_SOURCES.bunny;
+
+    // --- ライブ偽装 ---
+    let fakeLiveEnabled = false;
+    const originalDurationDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'duration');
+
+    function toggleFakeLive() {
+      fakeLiveEnabled = document.getElementById('fakeLive').checked;
+      if (fakeLiveEnabled) {
+        Object.defineProperty(video, 'duration', { get: () => Infinity, configurable: true });
+        liveIndicator.style.display = 'block';
+      } else {
+        delete video.duration; // プロトタイプの getter に戻す
+        liveIndicator.style.display = 'none';
+      }
+    }
+
+    // /live/ or /event/ URL ではデフォルトでライブ偽装ON
+    if (urlType === 'live' || urlType === 'event') {
+      document.getElementById('fakeLive').checked = true;
+      toggleFakeLive();
+    }
+
+    // --- 動画情報表示 ---
+    function formatTime(sec) {
+      if (!isFinite(sec) || sec < 0) return '--:--';
+      const m = Math.floor(sec / 60);
+      const s = Math.floor(sec % 60);
+      return `${m}:${s.toString().padStart(2, '0')}`;
+    }
+
+    setInterval(() => {
+      const dur = fakeLiveEnabled ? 'Infinity' : formatTime(video.duration);
+      const cur = formatTime(video.currentTime);
+      const edge = !fakeLiveEnabled && isFinite(video.duration) && video.duration > 0
+        ? (video.duration - video.currentTime < 30 ? ' [LIVE EDGE]' : '')
+        : '';
+      videoInfo.textContent = `${cur} / ${dur}${edge}`;
+    }, 250);
+
+    // --- ナビゲーション ---
+    function navigateTo(type) {
+      location.href = `/${type}/${titleId}`;
+    }
+
+    function changeTitleId() {
+      const newId = titleIdInput.value.trim();
+      if (newId && /^\d+$/.test(newId)) {
+        location.href = `/${urlType}/${newId}`;
+      }
+    }
+
+    function seekToLiveEdge() {
+      if (isFinite(video.duration) && video.duration > 0) {
+        video.currentTime = Math.max(0, video.duration - 5);
+      }
+    }
+
+    // --- 動画ソース変更 ---
+    function changeVideoSource() {
+      const sel = document.getElementById('videoSource').value;
+      document.getElementById('customUrlRow').style.display = sel === 'custom' ? 'flex' : 'none';
+      if (sel !== 'custom' && VIDEO_SOURCES[sel]) {
+        video.src = VIDEO_SOURCES[sel];
+        video.play().catch(() => {});
+      }
+    }
+
+    function loadCustomVideo() {
+      const url = document.getElementById('customUrl').value.trim();
+      if (url) {
+        video.src = url;
+        video.play().catch(() => {});
+      }
+    }
+
+    // --- パネル折りたたみ ---
+    function togglePanel() {
+      const panel = document.getElementById('devPanel');
+      panel.classList.toggle('collapsed');
+      panel.querySelector('.collapse-btn').textContent = panel.classList.contains('collapsed') ? '+' : '-';
+    }
+
+    // Ctrl+D でパネル表示切替
+    document.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.key === 'd') {
+        e.preventDefault();
+        const panel = document.getElementById('devPanel');
+        panel.style.display = panel.style.display === 'none' ? '' : 'none';
+      }
+    });
+  </script>
+</body>
+</html>
