@@ -11,7 +11,7 @@ interface DanmakuOptions {
 type TunnelMap = { [key: string]: HTMLElement[] };
 
 /** 同時に画面上に存在できる弾幕要素の上限 (パフォーマンス保護) */
-const MAX_ACTIVE_DANMAKU = 50;
+const MAX_ACTIVE_DANMAKU = 80;
 
 export class DanmakuRenderer {
   private container: HTMLElement;
@@ -57,6 +57,11 @@ export class DanmakuRenderer {
     this.container.classList.remove('nfjk-paused');
   }
 
+  /** 弾幕を描画できる状態かどうか (容量チェック) */
+  canDraw(): boolean {
+    return this.showing && this.settings.danmakuEnabled && this.activeCount < MAX_ACTIVE_DANMAKU;
+  }
+
   /** 弾幕を描画する */
   draw(dan: DanmakuItem | DanmakuItem[]): void {
     if (!this.showing || !this.settings.danmakuEnabled) return;
@@ -86,6 +91,10 @@ export class DanmakuRenderer {
 
     const danSpeed = (width: number) => (danWidth + width) / 5;
 
+    // animationend の安全タイマー: animationend が発火しない場合のフォールバック (ms)
+    const animDurationStr = this._getAnimationDuration();
+    const animDurationMs = parseFloat(animDurationStr) * 1000 + 1000; // アニメーション尺 + 1秒マージン
+
     const getTunnel = (el: HTMLElement, width: number): number => {
       const tmp = danWidth / danSpeed(width);
 
@@ -99,17 +108,35 @@ export class DanmakuRenderer {
             }
             if (j === item.length - 1) {
               this.danTunnel[i + ''].push(el);
-              el.addEventListener('animationend', () => {
-                this.danTunnel[i + ''].splice(0, 1);
-              });
+              let tunnelDone = false;
+              const tunnelCleanup = () => {
+                if (tunnelDone) return;
+                tunnelDone = true;
+                const arr = this.danTunnel[i + ''];
+                if (arr) {
+                  const idx = arr.indexOf(el);
+                  if (idx >= 0) arr.splice(idx, 1);
+                }
+              };
+              el.addEventListener('animationend', tunnelCleanup);
+              setTimeout(tunnelCleanup, animDurationMs);
               return i % itemY;
             }
           }
         } else {
           this.danTunnel[i + ''] = [el];
-          el.addEventListener('animationend', () => {
-            this.danTunnel[i + ''].splice(0, 1);
-          });
+          let tunnelDone = false;
+          const tunnelCleanup = () => {
+            if (tunnelDone) return;
+            tunnelDone = true;
+            const arr = this.danTunnel[i + ''];
+            if (arr) {
+              const idx = arr.indexOf(el);
+              if (idx >= 0) arr.splice(idx, 1);
+            }
+          };
+          el.addEventListener('animationend', tunnelCleanup);
+          setTimeout(tunnelCleanup, animDurationMs);
           return i % itemY;
         }
       }
@@ -124,10 +151,15 @@ export class DanmakuRenderer {
         const el = document.createElement('div');
         el.classList.add('nfjk-danmaku-admin');
         el.textContent = item.text;
-        el.addEventListener('animationend', () => {
+        let done = false;
+        const cleanup = () => {
+          if (done) return;
+          done = true;
           this.activeCount--;
           el.remove();
-        });
+        };
+        el.addEventListener('animationend', cleanup);
+        setTimeout(cleanup, 6000); // 5s animation + 1s margin
         el.classList.add('nfjk-danmaku-move');
         el.style.animationDuration = '5s';
         this.container.style.setProperty('--nfjk-danmaku-font-size', `${baseFontSize}px`);
@@ -160,11 +192,16 @@ export class DanmakuRenderer {
         el.style.color = COMMENT_COLOR;
         el.textContent = line;
 
-        // animationend でDOM削除 + カウンター減算
-        el.addEventListener('animationend', () => {
+        // animationend でDOM削除 + カウンター減算 (idempotent + fallback timeout)
+        let done = false;
+        const cleanup = () => {
+          if (done) return;
+          done = true;
           this.activeCount--;
           el.remove();
-        });
+        };
+        el.addEventListener('animationend', cleanup);
+        setTimeout(cleanup, animDurationMs);
 
         // トンネル取得・配置
         const tunnel = getTunnel(el, itemWidth);
@@ -174,7 +211,7 @@ export class DanmakuRenderer {
           el.style.transform = `translateX(-${danWidth}px)`;
           el.style.willChange = 'transform';
           el.classList.add('nfjk-danmaku-move');
-          el.style.animationDuration = this._getAnimationDuration();
+          el.style.animationDuration = animDurationStr;
           docFragment.appendChild(el);
           this.activeCount++;
         }

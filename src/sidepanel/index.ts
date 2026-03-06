@@ -485,12 +485,14 @@ async function initSettings(): Promise<void> {
 let currentNGType: 'comment' | 'command' | 'userId' | null = null;
 let currentSettings: Settings = { ...DEFAULT_SETTINGS };
 
-/** 再生時間連動スクロールモードが有効かどうか */
+/** 再生時間連動モードが有効かどうか (バッファ制御・挿入順・スクロール制御に使用)
+ *  ハイライト表示のON/OFFとは独立 — ハイライトがOFFでもアーカイブ再生時の
+ *  時間連動スクロール・バッファ制御は維持する */
 function isVideoTimeMode(): boolean {
   // ライブエッジ（リアルタイム視聴中）は再生時間連動を無効化 (末尾追加 + 自動スクロール)
   // 追っかけ再生・アーカイブ再生時は再生時間連動を有効にする
   if (isLiveMode && isAtLiveEdge) return false;
-  return currentSettings.nowPlayingHighlight && currentVideoTime >= 0;
+  return currentVideoTime >= 0;
 }
 
 function initNGSettings(settings: Settings): void {
@@ -1136,18 +1138,36 @@ function updatePaceDisplay(): void {
   animatePace(displayedPace, newPace);
 }
 
-/** 動画再生位置ベースの勢いを計算・表示する */
+/** 動画再生位置ベースの勢いを計算・表示する (二分探索で高速化) */
 function updateVideoTimePace(videoTime: number): void {
   const rows = commentList.querySelectorAll('.comment-row[data-video-time]');
-  let count = 0;
+  if (rows.length === 0) {
+    if (displayedPace !== 0) animatePace(displayedPace, 0);
+    return;
+  }
   // 現在位置から過去60秒間のコメント数 = コメ/分
   const windowStart = videoTime - PACE_VIDEO_WINDOW;
-  for (const row of rows) {
-    const vt = parseFloat((row as HTMLElement).dataset.videoTime || '0');
-    if (vt >= windowStart && vt <= videoTime) {
-      count++;
-    }
+
+  // 二分探索: windowStart 以上の最初のインデックスを見つける
+  let lo = 0;
+  let hi = rows.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    const vt = parseFloat((rows[mid] as HTMLElement).dataset.videoTime || '0');
+    if (vt < windowStart) lo = mid + 1;
+    else hi = mid;
   }
+  const startIdx = lo;
+
+  // videoTime 以下の最後のインデックスを見つける
+  hi = rows.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    const vt = parseFloat((rows[mid] as HTMLElement).dataset.videoTime || '0');
+    if (vt <= videoTime) lo = mid + 1;
+    else hi = mid;
+  }
+  const count = lo - startIdx;
 
   if (count === displayedPace) return;
 
@@ -1448,12 +1468,17 @@ function addComment(text: string, nickname: string, timestamp: number, mine: boo
   if (videoTime != null && (!isLiveMode || !isAtLiveEdge)) {
     const rows = commentList.querySelectorAll('.comment-row[data-video-time]');
     let insertBefore: Element | null = null;
-    for (const existingRow of rows) {
-      const vt = parseFloat((existingRow as HTMLElement).dataset.videoTime || '0');
-      if (vt > videoTime) {
-        insertBefore = existingRow;
-        break;
-      }
+    // 二分探索: videoTime より大きい最初の行を見つける
+    let lo = 0;
+    let hi = rows.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      const vt = parseFloat((rows[mid] as HTMLElement).dataset.videoTime || '0');
+      if (vt <= videoTime) lo = mid + 1;
+      else hi = mid;
+    }
+    if (lo < rows.length) {
+      insertBefore = rows[lo];
     }
     if (insertBefore) {
       commentList.insertBefore(row, insertBefore);
@@ -1547,40 +1572,61 @@ function scrollToVideoTime(videoTime: number): void {
   const rows = commentList.querySelectorAll('.comment-row[data-video-time]');
   if (rows.length === 0) return;
 
-  // 現在のハイライトをクリア
-  commentList.querySelectorAll('.comment-row.now-playing').forEach(el => {
-    el.classList.remove('now-playing');
-  });
+  const showHighlight = currentSettings.nowPlayingHighlight;
 
-  // 現在の再生位置以下の最後の行を見つける
+  // 現在のハイライトをクリア
+  if (showHighlight) {
+    commentList.querySelectorAll('.comment-row.now-playing').forEach(el => {
+      el.classList.remove('now-playing');
+    });
+  }
+
+  // 現在の再生位置以下の最後の行を見つける (二分探索で高速化)
   let targetRow: HTMLElement | null = null;
-  for (let i = rows.length - 1; i >= 0; i--) {
-    const row = rows[i] as HTMLElement;
-    const vt = parseFloat(row.dataset.videoTime || '0');
+  let targetIdx = -1;
+  let lo = 0;
+  let hi = rows.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >>> 1;
+    const vt = parseFloat((rows[mid] as HTMLElement).dataset.videoTime || '0');
     if (vt <= videoTime) {
-      targetRow = row;
-      break;
+      targetIdx = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
     }
+  }
+  if (targetIdx >= 0) {
+    targetRow = rows[targetIdx] as HTMLElement;
   }
 
   if (!targetRow) return;
 
-  // ハイライト: 現在時刻 ±2秒 の範囲
-  for (const row of rows) {
-    const el = row as HTMLElement;
-    const vt = parseFloat(el.dataset.videoTime || '0');
-    if (vt >= videoTime - 2 && vt <= videoTime + 1) {
-      el.classList.add('now-playing');
+  // ハイライト: 現在時刻 ±2秒 の範囲 (targetIdx 周辺のみ走査)
+  if (showHighlight) {
+    // 前方: targetIdx から逆方向に走査
+    for (let i = targetIdx; i >= 0; i--) {
+      const el = rows[i] as HTMLElement;
+      const vt = parseFloat(el.dataset.videoTime || '0');
+      if (vt < videoTime - 2) break;
+      if (vt <= videoTime + 1) el.classList.add('now-playing');
+    }
+    // 後方: targetIdx+1 から順方向に走査
+    for (let i = targetIdx + 1; i < rows.length; i++) {
+      const el = rows[i] as HTMLElement;
+      const vt = parseFloat(el.dataset.videoTime || '0');
+      if (vt > videoTime + 1) break;
+      if (vt >= videoTime - 2) el.classList.add('now-playing');
     }
   }
 
-  // targetRow が見えるようにスクロール (中央に配置)
+  // targetRow が見えるようにスクロール (下部80%に配置 — ネタバレ防止)
   programmaticScroll(() => {
     const listRect = commentList.getBoundingClientRect();
     const rowRect = targetRow.getBoundingClientRect();
     const rowCenter = rowRect.top + rowRect.height / 2;
-    const listCenter = listRect.top + listRect.height / 2;
-    const offset = rowCenter - listCenter;
+    const targetY = listRect.top + listRect.height * 0.8;
+    const offset = rowCenter - targetY;
     commentList.scrollTop += offset;
   });
 }
@@ -1599,9 +1645,7 @@ function handleVideoTimeUpdate(videoTime: number, paused: boolean, liveEdge?: bo
 
   if (paused) return; // 一時停止中はスクロールしない
 
-  // ハイライト設定がオフの場合はスクロール・ハイライトしない
-  if (!currentSettings.nowPlayingHighlight) return;
-
+  // 再生位置連動スクロール (ハイライトON/OFF問わず常にスクロール位置を追従)
   scrollToVideoTime(videoTime);
 }
 

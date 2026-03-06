@@ -46,6 +46,8 @@ let pauseBuffer: DanmakuItem[] = [];
 
 /** ニコ生ブリッジ状態 */
 let nicoBridgeHasSession = false;
+/** ニコ生ブリッジ接続中 (= ライブ配信中のシグナル) */
+let nicoBridgeConnected = false;
 /** ニコ生コメント重複排除 (IDベース) */
 const receivedNicoCommentIds = new Set<string>();
 const NICO_DEDUP_MAX_SIZE = 5000;
@@ -69,15 +71,29 @@ function getVideoCurrentTime(): number {
   return video ? video.currentTime : 0;
 }
 
+/** 現在のタイトルがニコ生ブリッジ対象かどうかを判定する */
+function isBridgeTargetTitle(): boolean {
+  if (!nicoBridgeConnected || !currentTitleId) return false;
+  const bridgeTitleIds = featureFlags.nicoBridge?.titleIds;
+  // titleIds が空配列 = 全タイトル対象
+  if (!bridgeTitleIds?.length) return true;
+  return bridgeTitleIds.includes(currentTitleId);
+}
+
 /** 動画がライブエッジ（リアルタイム視聴中）かどうかを判定する
- * - /watch/ URLは常にアーカイブ（false）
  * - /live/ /event/ URLで再生位置が末尾付近ならライブエッジ（true）
+ * - /watch/ URLでもブリッジ接続中かつ対象タイトルなら動画位置で判定（WBCなど /watch/ でのライブ配信対応）
  * - 追っかけ再生やアーカイブ再生ではfalse */
 function isVideoAtLiveEdge(): boolean {
-  // /watch/ URLは常にアーカイブ
-  if (/\/watch\//.test(location.pathname)) return false;
-  // /live/ /event/ のみライブの可能性あり
-  if (!/\/(?:live|event)\//.test(location.pathname)) return false;
+  const isWatchUrl = /\/watch\//.test(location.pathname);
+  const isLiveUrl = /\/(?:live|event)\//.test(location.pathname);
+
+  if (isWatchUrl) {
+    // /watch/ URL: ブリッジ接続中かつ対象タイトルのみライブ判定を行う
+    if (!isBridgeTargetTitle()) return false;
+  } else if (!isLiveUrl) {
+    return false;
+  }
 
   const video = document.querySelector('video');
   if (!video) return false;
@@ -530,8 +546,9 @@ async function initialize(): Promise<void> {
         if (nicoBridgeHasSession) return;
         // 非連携ユーザーは設定に従う
         if (settings.showNicoComments === false) return;
-        // アーカイブ/追っかけ再生時はリアルタイムのニコ生コメントを表示しない
-        if (!isVideoAtLiveEdge()) return;
+        // アーカイブ再生時はリアルタイムのニコ生コメントを表示しない
+        // ただしブリッジ接続中はライブ配信中のシグナル (/watch/ URLでも許可)
+        if (!isVideoAtLiveEdge() && !nicoBridgeConnected) return;
         // ブリッジ機能が無効の場合はP2P経由のニコ生コメントも表示しない
         if (!featureFlags.nicoBridge?.enabled) return;
         // 重複排除 (IDベース)
@@ -726,6 +743,9 @@ function enqueueNicoDanmaku(item: DanmakuItem): void {
   }
 }
 
+/** 弾幕が満杯で待機中のリトライ間隔 (ms) */
+const DANMAKU_DRIP_WAIT_MS = 200;
+
 /** ドリップキューから1コメントずつ描画 (適応的間隔) */
 function drainNicoDanmakuDrip(): void {
   nicoDanmakuDripTimer = null;
@@ -736,6 +756,11 @@ function drainNicoDanmakuDrip(): void {
       pauseBuffer.push(item);
     }
     nicoDanmakuDripQueue.length = 0;
+    return;
+  }
+  // 弾幕が満杯の場合: 破棄せずキューに残して待機
+  if (danmaku && !danmaku.canDraw()) {
+    nicoDanmakuDripTimer = setTimeout(drainNicoDanmakuDrip, DANMAKU_DRIP_WAIT_MS);
     return;
   }
   const item = nicoDanmakuDripQueue.shift()!;
@@ -768,8 +793,9 @@ function flushNicoDanmakuDrip(): void {
 function handleNicoBridgeComment(msg: NicoBridgeCommentMessage): void {
   // コメント表示OFFなら無視 (連携ユーザーでもOFF)
   if (settings.showNicoComments === false) return;
-  // アーカイブ/追っかけ再生時はリアルタイムのニコ生コメントを表示しない
-  if (!isVideoAtLiveEdge()) return;
+  // アーカイブ再生時はリアルタイムのニコ生コメントを表示しない
+  // ただしブリッジ接続中かつ対象タイトルはライブ配信中のシグナル (/watch/ URLでも許可)
+  if (!isVideoAtLiveEdge() && !isBridgeTargetTitle()) return;
 
   // 重複排除 (IDベース)
   if (receivedNicoCommentIds.has(msg.id)) return;
@@ -793,16 +819,19 @@ function handleNicoBridgeComment(msg: NicoBridgeCommentMessage): void {
   if (isNGComment(text)) return;
   if (isUserNGComment(text, settings.ngComments, msg.nicoUserId ?? '', settings.ngUserIds)) return;
 
-  // videoTime を取得 (アーカイブ再生用に保存)
+  const atLiveEdge = isVideoAtLiveEdge();
+
+  // videoTime: ライブエッジ時は現在再生位置、追っかけ時もそのまま
   const videoTime = getVideoCurrentTime();
 
-  // 弾幕描画: ドリップキュー経由で滑らかに逐次描画
-  enqueueNicoDanmaku({ text });
+  // ライブエッジ時のみ弾幕描画 + サイドパネル送信
+  // 追っかけ再生時は保存のみ (過去コメント再生で表示される)
+  if (atLiveEdge) {
+    enqueueNicoDanmaku({ text });
+    sendToSidePanel(text, msg.nickname, msg.timestamp, false, false, videoTime, msg.nicoUserId, 'niconico');
+  }
 
-  // サイドパネルに送信
-  sendToSidePanel(text, msg.nickname, msg.timestamp, false, false, videoTime, msg.nicoUserId, 'niconico');
-
-  // IndexedDB に保存 (アーカイブ弾幕再生用)
+  // IndexedDB に保存 (アーカイブ弾幕再生用 — 追っかけ中も常に保存)
   const comment: Comment = {
     id: msg.id,
     text,
@@ -947,6 +976,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // ニコ生ブリッジ状態更新
   if (message.type === 'nico-bridge-state') {
     nicoBridgeHasSession = !!message.hasNicoSession;
+    nicoBridgeConnected = message.status === 'connected';
   }
   // ニコ生コメント受信
   if (message.type === 'nico-bridge-comment' && currentTitleId) {

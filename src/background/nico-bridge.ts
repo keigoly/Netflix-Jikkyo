@@ -118,6 +118,10 @@ export class NicoBridge {
   // NDGR セグメント URI 重複排除 (closed セグメントのみ。LIVE は再fetchで新コメント取得)
   private seenSegmentUris = new Set<string>();
 
+  // ニコ生ユーザーID → 連番マッピング (nico#1, nico#2, ...)
+  private nicoUserMap = new Map<string, number>();
+  private nextNicoUserNum = 1;
+
   // デバッグ統計
   private debugSegsReceived = 0;
   private debugCommentsDispatched = 0;
@@ -242,6 +246,8 @@ export class NicoBridge {
     this.recentlySentTexts.clear();
     this.seenCommentNos.clear();
     this.seenSegmentUris.clear();
+    this.nicoUserMap.clear();
+    this.nextNicoUserNum = 1;
     this.debugSegsReceived = 0;
     this.debugCommentsDispatched = 0;
   }
@@ -875,11 +881,22 @@ export class NicoBridge {
     this.debugCommentsDispatched++;
     log(`[NicoBridge] Comment #${this.debugCommentsDispatched} no=${comment.no} age=${age}s "${comment.content.slice(0, 30)}"`);
 
+    // ユーザーID → nico#N 連番マッピング
+    let nickname = 'ニコ生';
+    if (comment.userId) {
+      let num = this.nicoUserMap.get(comment.userId);
+      if (num === undefined) {
+        num = this.nextNicoUserNum++;
+        this.nicoUserMap.set(comment.userId, num);
+      }
+      nickname = `nico#${num}`;
+    }
+
     const msg: NicoBridgeCommentMessage = {
       type: 'nico-bridge-comment',
       id: `nico-${comment.no}`,
       text: comment.content,
-      nickname: comment.userId ? `nico:${comment.userId.slice(0, 8)}` : 'ニコ生',
+      nickname,
       timestamp: comment.postedAt ? comment.postedAt * 1000 : Date.now(),
       nicoUserId: comment.userId,
     };

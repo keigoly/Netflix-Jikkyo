@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Netflix Jikkyo",
+    "description": "Extension name shown in Czech Chrome browsers"
+  },
+  "appDescription": {
+    "message": "Sdílejte komentáře na Netflixu v reálném čase.\nBezserverová P2P komunikace pro zcela nový zážitek ze sledování s důrazem na soukromí.",
+    "description": "Extension description shown in Czech Chrome browsers"
+  }
+}

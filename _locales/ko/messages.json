@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Netflix Jikkyo",
+    "description": "Extension name shown in Korean Chrome browsers"
+  },
+  "appDescription": {
+    "message": "Netflix 시청 화면에 실시간 탄막 댓글을 공유.\n완전 서버리스 P2P 통신으로 실현하는, 프라이버시 중심의 새로운 시청 경험.",
+    "description": "Extension description shown in Korean Chrome browsers"
+  }
+}

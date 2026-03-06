@@ -1,0 +1,10 @@
+{
+  "appName": {
+    "message": "Netflix Jikkyo",
+    "description": "Extension name shown in Traditional Chinese Chrome browsers"
+  },
+  "appDescription": {
+    "message": "在 Netflix 觀看畫面上即時分享彈幕留言。\n完全無伺服器的 P2P 通訊，打造注重隱私的全新觀看體驗。",
+    "description": "Extension description shown in Traditional Chinese Chrome browsers"
+  }
+}
