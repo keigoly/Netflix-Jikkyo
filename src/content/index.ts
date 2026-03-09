@@ -8,25 +8,24 @@ import { createOverlay, removeOverlay, watchFullscreen } from './overlay';
 import { DanmakuRenderer } from './danmaku';
 import { P2PRoom, createRoom } from './room';
 import {
-  saveComment, saveComments, cleanupOldComments, getCommentsByTitleSince, getLatestTimestamp,
+  saveComments, cleanupOldComments, getCommentsByTitleSince, getLatestTimestamp,
   trimCommentsByTitle, getCommentsByTitle, getStorageStats, estimateStorageSize,
   exportAllComments, clearAllComments, deleteLatestComments,
 } from './storage';
 import { signComment, verifyAdminSignature, loadAdminPrivateKey } from '../utils/crypto';
-import type { Comment, CommentSource, DanmakuItem, FeatureFlags, NicoBridgeCommentMessage, NicoBridgeStateMessage, P2PCommentMessage, P2PLogRequest, P2PLogResponse, Settings, SidePanelComment, SidePanelLogSynced, SidePanelTitleInfo } from '../types';
+import type { ArchiveComment, Comment, CommentSource, DanmakuItem, FeatureFlags, NicoBridgeCommentMessage, NicoBridgeStateMessage, P2PCommentMessage, P2PLogRequest, P2PLogResponse, Settings, SidePanelComment, SidePanelLogSynced, SidePanelTitleInfo } from '../types';
 import { DEFAULT_SETTINGS, DEFAULT_FEATURE_FLAGS, MAX_COMMENT_TEXT_LENGTH, MAX_TITLE_ID_LENGTH } from '../types';
 import { isNGComment, isUserNGComment } from '../utils/ng-filter';
 import { sanitizeText, sanitizeId } from '../utils/sanitize';
 import { setLocale } from '../i18n';
 import { log, warn } from '../utils/logger';
-
-let danmakuBuffer: DanmakuItem[] = [];
+import { initDebugOverlay, debugLog, destroyDebugOverlay } from './debug-overlay';
 
 /** ログ同期チャンクサイズ */
 const LOG_SYNC_CHUNK_SIZE = 200;
 
 /** タイトル別コメント最大保持数 */
-const MAX_COMMENTS_PER_TITLE = 10000;
+const MAX_COMMENTS_PER_TITLE = 100000;
 
 let danmaku: DanmakuRenderer | null = null;
 let room: P2PRoom | null = null;
@@ -44,6 +43,9 @@ let currentUserId: string | undefined;
 
 let pauseBuffer: DanmakuItem[] = [];
 
+/** Extension context が有効かどうか (リロードで無効化される) */
+let extensionContextValid = true;
+
 /** ニコ生ブリッジ状態 */
 let nicoBridgeHasSession = false;
 /** ニコ生ブリッジ接続中 (= ライブ配信中のシグナル) */
@@ -56,14 +58,50 @@ const NICO_DEDUP_MAX_SIZE = 5000;
 const nicoDanmakuDripQueue: DanmakuItem[] = [];
 let nicoDanmakuDripTimer: ReturnType<typeof setTimeout> | null = null;
 const DANMAKU_DRIP_MAX_TOTAL_MS = 500; // バッチ全体の最大ドレイン時間 (これ以内に全コメント表示)
-const DANMAKU_DRIP_MIN_MS = 30;        // 最速間隔 (大量コメント時)
+const DANMAKU_DRIP_MIN_MS = 16;        // 最速間隔 ≈ 1フレーム (Canvas は低コスト)
 const DANMAKU_DRIP_MAX_MS = 200;       // 最遅間隔 (少量コメント時、1コメントの上限)
-const DANMAKU_DRIP_MAX_QUEUE = 50;     // キュー上限 (超過時は一括フラッシュ)
+const DANMAKU_DRIP_MAX_QUEUE = 150;    // キュー上限 (Canvas レンダラーは200+同時表示可能)
+
+/** パフォーマンス計測用カウンター (デバッグオーバーレイ向け) */
+let perfDroppedComments = 0;
+let perfTotalReceived = 0;
+
+/** IndexedDB バッチ書き込み: 個別トランザクションを避け、500ms or 20件ごとに一括コミット */
+let commentSaveBatch: Comment[] = [];
+let saveBatchTimer: ReturnType<typeof setTimeout> | null = null;
+const SAVE_BATCH_MAX = 20;
+const SAVE_BATCH_INTERVAL_MS = 500;
+
+function queueCommentSave(comment: Comment): void {
+  commentSaveBatch.push(comment);
+  if (commentSaveBatch.length >= SAVE_BATCH_MAX) {
+    flushCommentSaves();
+  } else if (!saveBatchTimer) {
+    saveBatchTimer = setTimeout(flushCommentSaves, SAVE_BATCH_INTERVAL_MS);
+  }
+}
+
+function flushCommentSaves(): void {
+  if (saveBatchTimer) {
+    clearTimeout(saveBatchTimer);
+    saveBatchTimer = null;
+  }
+  if (commentSaveBatch.length === 0) return;
+  const batch = commentSaveBatch;
+  commentSaveBatch = [];
+  saveComments(batch).catch(console.error);
+}
 
 /** 過去コメント弾幕再生 */
 let pastDanmakuComments: Comment[] = [];
 let pastDanmakuIndex = 0;
 let lastVideoTime = -1;
+
+/** アーカイブコメント取得管理 */
+let archiveFetchedRanges: { from: number; to: number }[] = [];
+let archiveFetchInProgress = false;
+const ARCHIVE_CHUNK_SEC = 600; // 10分チャンク
+const ARCHIVE_PREFETCH_SEC = 300; // 現在位置の5分先まで先読み
 
 /** 動画の現在再生位置 (秒) を取得する */
 function getVideoCurrentTime(): number {
@@ -80,6 +118,11 @@ function isBridgeTargetTitle(): boolean {
   return bridgeTitleIds.includes(currentTitleId);
 }
 
+/** コンテンツ側ライブエッジ粘着タイムスタンプ */
+let contentLastLiveEdgeTs = 0;
+/** コンテンツ側ライブエッジ粘着期間 (ms) — 一時的な揺れを吸収 */
+const CONTENT_LIVE_EDGE_STICKY_MS = 60_000;
+
 /** 動画がライブエッジ（リアルタイム視聴中）かどうかを判定する
  * - /live/ /event/ URLで再生位置が末尾付近ならライブエッジ（true）
  * - /watch/ URLでもブリッジ接続中かつ対象タイトルなら動画位置で判定（WBCなど /watch/ でのライブ配信対応）
@@ -87,21 +130,37 @@ function isBridgeTargetTitle(): boolean {
 function isVideoAtLiveEdge(): boolean {
   const isWatchUrl = /\/watch\//.test(location.pathname);
   const isLiveUrl = /\/(?:live|event)\//.test(location.pathname);
+  const isBridgeTarget = isWatchUrl && isBridgeTargetTitle();
 
   if (isWatchUrl) {
-    // /watch/ URL: ブリッジ接続中かつ対象タイトルのみライブ判定を行う
-    if (!isBridgeTargetTitle()) return false;
+    if (!isBridgeTarget) return false;
   } else if (!isLiveUrl) {
     return false;
   }
 
   const video = document.querySelector('video');
-  if (!video) return false;
+  if (!video) {
+    // Bridge target で video が null = Netflix 広告遷移中。粘着判定で維持
+    if (isBridgeTarget && (Date.now() - contentLastLiveEdgeTs) < CONTENT_LIVE_EDGE_STICKY_MS) return true;
+    return false;
+  }
   // Infinite duration = ライブストリーミング
-  if (!isFinite(video.duration)) return true;
+  if (!isFinite(video.duration)) { contentLastLiveEdgeTs = Date.now(); return true; }
   // Duration未ロード = ライブページではデフォルトtrue
-  if (video.duration <= 0) return true;
-  // 末尾30秒以内 = ライブエッジ
+  if (video.duration <= 0) { contentLastLiveEdgeTs = Date.now(); return true; }
+
+  // /watch/ URL (DASH ライブ): バッファギャップが大きいため緩い閾値 + 粘着判定
+  if (isBridgeTarget) {
+    if ((video.duration - video.currentTime) < 120) {
+      contentLastLiveEdgeTs = Date.now();
+      return true;
+    }
+    // 粘着: 最近ライブエッジだった場合は維持 (一時的な揺れを吸収)
+    if ((Date.now() - contentLastLiveEdgeTs) < CONTENT_LIVE_EDGE_STICKY_MS) return true;
+    return false;
+  }
+
+  // /live/ /event/ URL: 従来の30秒閾値
   return (video.duration - video.currentTime) < 30;
 }
 
@@ -123,7 +182,6 @@ function cleanup(): void {
   danmaku = null;
   room?.destroy();
   room = null;
-  danmakuBuffer = [];
   pauseBuffer = [];
   // ドリップキュークリア
   if (nicoDanmakuDripTimer) {
@@ -131,9 +189,16 @@ function cleanup(): void {
     nicoDanmakuDripTimer = null;
   }
   nicoDanmakuDripQueue.length = 0;
+  // ライブ弾幕ヘルスチェック停止
+  stopLiveDanmakuHealthCheck();
+  // IDB バッチを flush して保存漏れ防止
+  flushCommentSaves();
   pastDanmakuComments = [];
   pastDanmakuIndex = 0;
   lastVideoTime = -1;
+  archiveFetchedRanges = [];
+  archiveFetchInProgress = false;
+  destroyDebugOverlay();
   removeOverlay();
   if (cleanupFs) {
     cleanupFs();
@@ -156,10 +221,86 @@ function cleanup(): void {
   lastSentTitle = '';
 }
 
+/** chrome.runtime.sendMessage の安全ラッパー
+ * Extension context が無効化されていたら検知して通知を表示する */
+function safeSendMessage(message: unknown): void {
+  if (!extensionContextValid) return;
+  try {
+    chrome.runtime.sendMessage(message).catch((e: Error) => {
+      if (e?.message?.includes('Extension context invalidated')) {
+        onContextInvalidated();
+      }
+    });
+  } catch (e) {
+    if (e instanceof Error && e.message.includes('Extension context invalidated')) {
+      onContextInvalidated();
+    }
+  }
+}
+
+/** Extension context 無効化時の処理 */
+function onContextInvalidated(): void {
+  if (!extensionContextValid) return;
+  extensionContextValid = false;
+  warn('Extension context invalidated — extension was reloaded. Please reload the Netflix tab.');
+  showReloadBanner();
+}
+
+/** タブリロードを促すバナーを表示する */
+function showReloadBanner(): void {
+  if (document.getElementById('nfjk-reload-banner')) return;
+  const banner = document.createElement('div');
+  banner.id = 'nfjk-reload-banner';
+  banner.style.cssText = `
+    position: fixed; top: 0; left: 0; right: 0; z-index: 2147483647;
+    background: #E50914; color: #fff; text-align: center;
+    padding: 8px 16px; font: bold 14px/1.4 "Segoe UI", Arial, sans-serif;
+    cursor: pointer;
+  `;
+  banner.textContent = '⟳ Netflix Jikkyo: 拡張機能が更新されました。クリックでページをリロード';
+  banner.addEventListener('click', () => location.reload());
+  document.body.appendChild(banner);
+}
+
+// --- ピアカウント統計 (管理者向け) ---
+const peerStats = {
+  current: 0,
+  max: 0,
+  /** { timestamp, count }[] — 5秒ごとのサンプル */
+  samples: [] as { t: number; c: number }[],
+  startTime: Date.now(),
+};
+
 function updateBadge(count: number): void {
-  chrome.runtime.sendMessage({ type: 'peer-count', count }).catch(() => {
-    // Service Worker が非アクティブの場合は無視
-  });
+  peerStats.current = count;
+  if (count > peerStats.max) peerStats.max = count;
+  safeSendMessage({ type: 'peer-count', count });
+}
+
+/** 定期的にピアカウントをサンプリング (gossip と同期して呼ばれる) */
+function samplePeerCount(): void {
+  if (peerStats.current > 0) {
+    peerStats.samples.push({ t: Date.now(), c: peerStats.current });
+    // 24時間分以上は古いものを捨てる
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    while (peerStats.samples.length > 0 && peerStats.samples[0].t < cutoff) {
+      peerStats.samples.shift();
+    }
+  }
+}
+
+/** ピアカウント統計を返す */
+function getPeerStats(): { current: number; max: number; average: number; samples: number; uptimeMin: number } {
+  const avg = peerStats.samples.length > 0
+    ? peerStats.samples.reduce((sum, s) => sum + s.c, 0) / peerStats.samples.length
+    : peerStats.current;
+  return {
+    current: peerStats.current,
+    max: peerStats.max,
+    average: Math.round(avg * 10) / 10,
+    samples: peerStats.samples.length,
+    uptimeMin: Math.round((Date.now() - peerStats.startTime) / 60000),
+  };
 }
 
 let lastSentTitle = '';
@@ -174,9 +315,7 @@ async function sendTitleInfoToSidePanel(): Promise<void> {
   if (metadata.title === lastSentTitle) return;
   lastSentTitle = metadata.title;
   const msg: SidePanelTitleInfo = { type: 'title-info', metadata };
-  chrome.runtime.sendMessage(msg).catch(() => {
-    // サイドパネルが閉じている場合は無視
-  });
+  safeSendMessage(msg);
 }
 
 /** document.title の変更を監視してタイトル情報を再送する */
@@ -200,9 +339,7 @@ function sendToSidePanel(text: string, nickname: string, timestamp: number, mine
     type: 'comment',
     comment: { text, nickname, timestamp, mine, admin, videoTime, userId, source },
   };
-  chrome.runtime.sendMessage(msg).catch(() => {
-    // サイドパネルが閉じている場合は無視
-  });
+  safeSendMessage(msg);
 }
 
 async function handleLogSyncRequest(request: P2PLogRequest, peerId: string): Promise<void> {
@@ -263,9 +400,7 @@ async function handleLogSyncResponse(response: P2PLogResponse, _peerId: string):
         titleId: response.titleId,
         count: totalSynced,
       };
-      chrome.runtime.sendMessage(msg).catch(() => {
-        // サイドパネルが閉じている場合は無視
-      });
+      safeSendMessage(msg);
     }
   } catch (e) {
     console.error('[Netflix Jikkyo] Failed to handle log sync response:', e);
@@ -282,9 +417,82 @@ async function loadPastDanmaku(titleId: string): Promise<void> {
     pastDanmakuIndex = 0;
     lastVideoTime = -1;
     log(`Loaded ${pastDanmakuComments.length} past comments for danmaku playback`);
+    debugLog(`loadPastDanmaku: ${pastDanmakuComments.length} comments, vt range: ${pastDanmakuComments.length > 0 ? `${(pastDanmakuComments[0].videoTime || 0).toFixed(1)}~${(pastDanmakuComments[pastDanmakuComments.length - 1].videoTime || 0).toFixed(1)}` : 'empty'}`);
   } catch (e) {
     console.error('[Netflix Jikkyo] Failed to load past danmaku:', e);
   }
+}
+
+/** アーカイブコメントを取得して pastDanmakuComments に挿入する */
+async function fetchArchiveComments(titleId: string, fromSec: number, toSec: number): Promise<void> {
+  // 既に取得済みの範囲はスキップ
+  if (archiveFetchedRanges.some(r => r.from <= fromSec && r.to >= toSec)) return;
+  if (archiveFetchInProgress) return;
+
+  archiveFetchInProgress = true;
+  try {
+    const response = await new Promise<{ comments: ArchiveComment[]; total: number; error?: string }>((resolve) => {
+      chrome.runtime.sendMessage(
+        { type: 'fetch-archive-comments', titleId, from: fromSec, to: toSec },
+        (res) => {
+          if (chrome.runtime.lastError) {
+            resolve({ comments: [], total: 0, error: chrome.runtime.lastError.message });
+            return;
+          }
+          resolve(res ?? { comments: [], total: 0 });
+        },
+      );
+    });
+
+    if (response.error) {
+      warn('Archive comments fetch error:', response.error);
+      return;
+    }
+
+    archiveFetchedRanges.push({ from: fromSec, to: toSec });
+
+    if (response.comments.length === 0) return;
+
+    // ArchiveComment → Comment に変換して pastDanmakuComments にマージ
+    const newComments: Comment[] = response.comments.map((ac, i) => ({
+      id: `archive-${fromSec}-${i}`,
+      text: ac.text,
+      nickname: '',
+      timestamp: ac.timestamp,
+      titleId,
+      videoTime: ac.videoTime,
+      source: 'niconico' as CommentSource,
+    }));
+
+    // videoTime 順ソート済みでマージ (バッチ挿入)
+    newComments.sort((a, b) => (a.videoTime || 0) - (b.videoTime || 0));
+    for (const c of newComments) {
+      insertPastDanmakuComment(c);
+    }
+
+    log(`Archive: loaded ${newComments.length} comments for ${fromSec}s-${toSec}s (total: ${pastDanmakuComments.length})`);
+    debugLog(`archive: +${newComments.length} comments, range ${fromSec}-${toSec}s`);
+  } catch (e) {
+    warn('Archive comments fetch failed:', e);
+  } finally {
+    archiveFetchInProgress = false;
+  }
+}
+
+/** アーカイブコメントの先読みチェック (timeupdate から呼ばれる) */
+function checkArchivePrefetch(titleId: string, currentTime: number): void {
+  if (!featureFlags.archive?.enabled) return;
+  if (!featureFlags.archive.titles[titleId]) return;
+
+  // 現在位置 + PREFETCH 先までカバーされているか確認
+  const targetEnd = currentTime + ARCHIVE_PREFETCH_SEC;
+  const needsFetch = !archiveFetchedRanges.some(r => r.from <= currentTime && r.to >= targetEnd);
+  if (!needsFetch) return;
+
+  // 次のチャンクを取得
+  const chunkStart = Math.floor(currentTime / ARCHIVE_CHUNK_SEC) * ARCHIVE_CHUNK_SEC;
+  const chunkEnd = chunkStart + ARCHIVE_CHUNK_SEC + ARCHIVE_PREFETCH_SEC;
+  fetchArchiveComments(titleId, chunkStart, chunkEnd);
 }
 
 function insertPastDanmakuComment(comment: Comment): void {
@@ -312,6 +520,12 @@ function attachVideoListeners(video: HTMLVideoElement): void {
   connectedVideo = video;
 
   const onPause = () => {
+    // ライブ配信中 (ブリッジ対象タイトル) は弾幕を一時停止しない
+    // Netflix の広告ブレイクで video.pause → danmaku が永久停止するのを防止
+    if (isBridgeTargetTitle()) {
+      log('Video paused (live broadcast) → danmaku NOT paused');
+      return;
+    }
     danmaku?.pause();
     log('Video paused → danmaku paused');
   };
@@ -334,9 +548,12 @@ function attachVideoListeners(video: HTMLVideoElement): void {
   video.addEventListener('play', onPlay);
   video.addEventListener('timeupdate', onTimeUpdate);
 
-  // 初期状態が一時停止中の場合
-  if (video.paused) {
+  // 初期状態に応じてpause/resume同期
+  // (MutationObserverが非同期のため、新video検出時点で play イベントを逃す場合がある)
+  if (video.paused && !isBridgeTargetTitle()) {
     danmaku?.pause();
+  } else {
+    danmaku?.resume();
   }
 
   cleanupVideo = () => {
@@ -375,6 +592,94 @@ function watchVideoElement(): void {
 }
 
 let lastVideoTimeSent = 0;
+let lastOverlayCheck = 0;
+let liveDanmakuHealthTimer: ReturnType<typeof setInterval> | null = null;
+
+/** ライブ配信中の弾幕ヘルスチェック (3秒間隔)
+ *  timeupdate イベント非依存で、弾幕の pause 状態とオーバーレイ健全性を監視 */
+function startLiveDanmakuHealthCheck(): void {
+  if (liveDanmakuHealthTimer) return;
+  liveDanmakuHealthTimer = setInterval(() => {
+    if (!isBridgeTargetTitle()) {
+      // ライブ終了 → タイマー停止
+      if (liveDanmakuHealthTimer) {
+        clearInterval(liveDanmakuHealthTimer);
+        liveDanmakuHealthTimer = null;
+      }
+      return;
+    }
+    // 弾幕が paused なら強制 resume
+    if (danmaku && danmaku.isPaused()) {
+      log('Live health check: danmaku paused, forcing resume');
+      danmaku.resume();
+      pauseBuffer = [];
+    }
+    // オーバーレイ健全性チェック
+    checkOverlayHealth();
+  }, 3000);
+}
+
+function stopLiveDanmakuHealthCheck(): void {
+  if (liveDanmakuHealthTimer) {
+    clearInterval(liveDanmakuHealthTimer);
+    liveDanmakuHealthTimer = null;
+  }
+}
+
+/** オーバーレイ復旧のリトライ回数 (5分ごとにリセット) */
+let overlayRecoveryRetries = 0;
+let overlayRecoveryResetTime = 0;
+const MAX_OVERLAY_RECOVERY_RETRIES = 10;
+const OVERLAY_RECOVERY_RESET_MS = 300_000; // 5分
+
+/** オーバーレイの健全性チェック (DOMから外れた場合に再マウント) */
+function checkOverlayHealth(): void {
+  const now = Date.now();
+  if (now - lastOverlayCheck < 5000) return;
+  lastOverlayCheck = now;
+
+  if (!currentTitleId) return;
+
+  // danmaku が null の場合 (cleanup後の再初期化前など)
+  if (!danmaku) {
+    log('Danmaku renderer is null, attempting re-initialization...');
+    const container = getPlayerContainer();
+    if (container) {
+      const newOverlay = createOverlay(container);
+      danmaku = new DanmakuRenderer({ container: newOverlay, settings });
+      watchVideoElement();
+      overlayRecoveryRetries = 0;
+      log('Danmaku renderer re-created');
+    }
+    return;
+  }
+
+  const overlay = document.getElementById('nfjk-danmaku-overlay');
+  if (overlay && document.body.contains(overlay) && overlay.offsetWidth > 0) {
+    overlayRecoveryRetries = 0;
+    return;
+  }
+
+  // リトライカウンターを定期的にリセット (ライブ配信中はNetflixがプレイヤーを再構築する)
+  if (now - overlayRecoveryResetTime > OVERLAY_RECOVERY_RESET_MS) {
+    overlayRecoveryRetries = 0;
+    overlayRecoveryResetTime = now;
+  }
+  if (overlayRecoveryRetries >= MAX_OVERLAY_RECOVERY_RETRIES) return;
+  overlayRecoveryRetries++;
+
+  log(`Overlay detached or invisible, reinitializing... (attempt ${overlayRecoveryRetries}/${MAX_OVERLAY_RECOVERY_RETRIES})`);
+  const container = getPlayerContainer();
+  if (container) {
+    danmaku.destroy();
+    const newOverlay = createOverlay(container);
+    danmaku = new DanmakuRenderer({ container: newOverlay, settings });
+    watchVideoElement();
+    log('Overlay recovered');
+  } else {
+    warn('Player container not found, will retry on next health check');
+  }
+}
 
 /** 動画のtimeupdateで過去コメントを弾幕として描画する + サイドパネルに再生時間を送信 */
 function onVideoTimeUpdate(): void {
@@ -383,16 +688,46 @@ function onVideoTimeUpdate(): void {
 
   const currentTime = video.currentTime;
 
+  // 大幅な巻き戻し検出 → ライブエッジ粘着をリセット (追っかけ再生開始)
+  // safeSendMessage より前に行い、isVideoAtLiveEdge() が正しい値を返すようにする
+  if (lastVideoTime >= 0 && currentTime < lastVideoTime - 10) {
+    contentLastLiveEdgeTs = 0;
+  }
+
+  // オーバーレイ健全性チェック (5秒間隔)
+  checkOverlayHealth();
+
+  // 弾幕pause/play状態の整合性チェック
+  // Netflix のシーク・ライブ復帰時に play イベントが発火しない場合の自動回復
+  if (danmaku && danmaku.isPaused() && !video.paused) {
+    log('Desync detected: video playing but danmaku paused, forcing resume');
+    danmaku.resume();
+    // 一時停止中に溜まったコメントを流す (最新5件)
+    const MAX_RESUME_COMMENTS = 5;
+    const recent = pauseBuffer.length > MAX_RESUME_COMMENTS
+      ? pauseBuffer.slice(-MAX_RESUME_COMMENTS)
+      : pauseBuffer;
+    for (const item of recent) {
+      danmaku.draw(item);
+    }
+    pauseBuffer = [];
+  }
+
   // サイドパネルに再生時間を送信 (1秒間隔スロットル)
   const now = Date.now();
   if (now - lastVideoTimeSent >= 1000) {
     lastVideoTimeSent = now;
-    chrome.runtime.sendMessage({
+    safeSendMessage({
       type: 'video-time-update',
       videoTime: currentTime,
       paused: video.paused,
       isAtLiveEdge: isVideoAtLiveEdge(),
-    }).catch(() => {});
+    });
+  }
+
+  // アーカイブコメント先読みチェック
+  if (currentTitleId) {
+    checkArchivePrefetch(currentTitleId, currentTime);
   }
 
   if (!danmaku || danmaku.isPaused()) return;
@@ -401,8 +736,10 @@ function onVideoTimeUpdate(): void {
   // シーク検出 (2秒以上の飛びor巻き戻し)
   if (lastVideoTime >= 0 && (currentTime < lastVideoTime - 0.5 || currentTime > lastVideoTime + 2)) {
     // シーク → インデックスをリセット
+    const oldIndex = pastDanmakuIndex;
     pastDanmakuIndex = pastDanmakuComments.findIndex(c => (c.videoTime || 0) > currentTime);
     if (pastDanmakuIndex === -1) pastDanmakuIndex = pastDanmakuComments.length;
+    debugLog(`seek detected: vt ${lastVideoTime.toFixed(2)}→${currentTime.toFixed(2)}, idx ${oldIndex}→${pastDanmakuIndex}/${pastDanmakuComments.length}`);
   }
   lastVideoTime = currentTime;
 
@@ -417,7 +754,8 @@ function onVideoTimeUpdate(): void {
       if (currentTime - vt < 2) {
         if (drawn >= PAST_DANMAKU_BATCH_LIMIT) break;
         const isMine = !!currentUserId && c.userId === currentUserId;
-        danmaku.draw({ text: c.text, mine: isMine });
+        danmaku.draw({ text: c.text, mine: isMine, admin: c.admin });
+        debugLog(`past danmaku: "${c.text}" vt=${vt.toFixed(1)} ct=${currentTime.toFixed(1)}`);
         drawn++;
       }
       pastDanmakuIndex++;
@@ -441,7 +779,7 @@ async function initialize(): Promise<void> {
   log(`Initializing for title: ${titleId}`);
 
   // けいふぉんと注入
-  injectKeifont();
+  injectBundledFonts();
 
   // 設定読み込み
   settings = await loadSettings();
@@ -526,15 +864,57 @@ async function initialize(): Promise<void> {
   watchVideoElement();
 
   // リモート機能フラグ取得
-  try {
-    featureFlags = await new Promise<FeatureFlags>((resolve) => {
-      chrome.runtime.sendMessage({ type: 'get-feature-flags' }, (response) => {
-        resolve(response ?? DEFAULT_FEATURE_FLAGS);
+  if (extensionContextValid) {
+    try {
+      featureFlags = await new Promise<FeatureFlags>((resolve) => {
+        chrome.runtime.sendMessage({ type: 'get-feature-flags' }, (response) => {
+          if (chrome.runtime.lastError?.message?.includes('Extension context invalidated')) {
+            onContextInvalidated();
+            resolve(DEFAULT_FEATURE_FLAGS);
+            return;
+          }
+          resolve(response ?? DEFAULT_FEATURE_FLAGS);
+        });
       });
-    });
-    log('Feature flags:', featureFlags);
-  } catch {
-    featureFlags = { ...DEFAULT_FEATURE_FLAGS };
+      log('Feature flags:', featureFlags);
+    } catch {
+      featureFlags = { ...DEFAULT_FEATURE_FLAGS };
+    }
+  }
+
+  // ニコ生ブリッジ状態を初期取得 (ページリロード後に nicoBridgeConnected が false のまま放置されるのを防止)
+  if (extensionContextValid) {
+    try {
+      const bridgeState = await new Promise<NicoBridgeStateMessage | null>((resolve) => {
+        chrome.runtime.sendMessage({ type: 'get-nico-bridge-state' }, (response) => {
+          if (chrome.runtime.lastError?.message?.includes('Extension context invalidated')) {
+            onContextInvalidated();
+            resolve(null);
+            return;
+          }
+          resolve(response ?? null);
+        });
+      });
+      if (bridgeState) {
+        nicoBridgeHasSession = !!bridgeState.hasNicoSession;
+        nicoBridgeConnected = bridgeState.status === 'connected';
+        log('NicoBridge initial state:', bridgeState.status, 'session:', nicoBridgeHasSession);
+        // ブリッジ接続中ならライブ弾幕ヘルスチェック開始
+        if (nicoBridgeConnected) {
+          startLiveDanmakuHealthCheck();
+        }
+      }
+    } catch {
+      // BG SW が非アクティブの場合は無視
+    }
+  }
+
+  // アーカイブコメント初回取得 (ライブエッジでなければ)
+  if (featureFlags.archive?.enabled && featureFlags.archive.titles[titleId] && !isVideoAtLiveEdge()) {
+    const videoTime = getVideoCurrentTime();
+    const chunkStart = Math.floor(videoTime / ARCHIVE_CHUNK_SEC) * ARCHIVE_CHUNK_SEC;
+    fetchArchiveComments(titleId, chunkStart, chunkStart + ARCHIVE_CHUNK_SEC + ARCHIVE_PREFETCH_SEC);
+    log(`Archive mode detected for title ${titleId}, fetching comments from ${chunkStart}s`);
   }
 
   room = createRoom(titleId, {
@@ -542,12 +922,13 @@ async function initialize(): Promise<void> {
       // ニコ生ソースのコメントで表示OFF → スキップ
       const source: CommentSource = (msg.source === 'niconico') ? 'niconico' : 'p2p';
       if (source === 'niconico') {
+        // userId が無い匿名コメントは除外 (NG設定不可のため表示しない)
+        if (!msg.userId) return;
         // 連携ユーザーは自分がブリッジしているのでP2Pからの再配信は無視
         if (nicoBridgeHasSession) return;
         // 非連携ユーザーは設定に従う
         if (settings.showNicoComments === false) return;
-        // アーカイブ再生時はリアルタイムのニコ生コメントを表示しない
-        // ただしブリッジ接続中はライブ配信中のシグナル (/watch/ URLでも許可)
+        // アーカイブ再生時 (ブリッジ未接続) はリアルタイムのニコ生コメントを表示しない
         if (!isVideoAtLiveEdge() && !nicoBridgeConnected) return;
         // ブリッジ機能が無効の場合はP2P経由のニコ生コメントも表示しない
         if (!featureFlags.nicoBridge?.enabled) return;
@@ -577,15 +958,21 @@ async function initialize(): Promise<void> {
 
       // 全ソース共通: ブリッジユーザーの videoTime を活用
       const videoTime = msg.videoTime ?? getVideoCurrentTime();
+      debugLog(`recv[${source}]: "${msg.text.slice(0, 20)}" vt=${videoTime.toFixed(1)} from=${msg.nickname}`);
       const displayText = msg.text.slice(0, MAX_COMMENT_TEXT_LENGTH);
 
-      if (source === 'niconico') {
-        // ニコ生コメントはドリップキュー経由で滑らかに描画
-        enqueueNicoDanmaku({ text: displayText, admin: isAdmin });
+      if (isAdmin) {
+        // 管理者コメントはバッファせず即座に描画 (上部中央固定表示)
+        danmaku?.draw({ text: displayText, admin: true });
+      } else if (source === 'niconico') {
+        // ニコ生コメント: ライブエッジならドリップキュー描画、追っかけ中は pastDanmaku に任せる
+        if (isVideoAtLiveEdge()) {
+          enqueueNicoDanmaku({ text: displayText });
+        }
       } else if (danmaku?.isPaused()) {
-        pauseBuffer.push({ text: displayText, admin: isAdmin });
+        pauseBuffer.push({ text: displayText });
       } else {
-        danmakuBuffer.push({ text: displayText, admin: isAdmin });
+        danmaku?.draw({ text: displayText });
       }
 
       // サイドパネルに送信
@@ -601,14 +988,15 @@ async function initialize(): Promise<void> {
         videoTime,
         userId: msg.userId,
         source,
+        admin: isAdmin || undefined,
+        nicoLinked: msg.nicoLinked || undefined,
       };
-      saveComment(comment).catch(console.error);
+      queueCommentSave(comment);
       // 過去弾幕配列に挿入 (次回シーク時に再生可能にする)
       insertPastDanmakuComment(comment);
     },
     onPeerJoin: async (peerId) => {
-      const count = (room?.getPeerCount() ?? 0) + 1; // +1 で自分自身を含める
-      updateBadge(count);
+      updateBadge(room?.getGlobalPeerCount() ?? 1);
 
       // ログ同期リクエスト送信
       if (room && currentTitleId) {
@@ -617,8 +1005,11 @@ async function initialize(): Promise<void> {
       }
     },
     onPeerLeave: (_peerId) => {
-      const count = (room?.getPeerCount() ?? 0) + 1; // +1 で自分自身を含める
+      updateBadge(room?.getGlobalPeerCount() ?? 1);
+    },
+    onPeerCountUpdate: (count) => {
       updateBadge(count);
+      samplePeerCount();
     },
     onLogRequest: (request, peerId) => {
       handleLogSyncRequest(request, peerId);
@@ -631,7 +1022,7 @@ async function initialize(): Promise<void> {
   updateBadge(1);
 
   // サイドパネルにタイトル準備完了を即座に通知 (コメント読み込みトリガー)
-  chrome.runtime.sendMessage({ type: 'title-ready', titleId }).catch(() => {});
+  safeSendMessage({ type: 'title-ready', titleId });
 
   sendTitleInfoToSidePanel();
   setTimeout(() => sendTitleInfoToSidePanel(), 2000);
@@ -640,6 +1031,31 @@ async function initialize(): Promise<void> {
 
   // 過去コメントの弾幕再生用に読み込み
   await loadPastDanmaku(titleId);
+
+  // デバッグオーバーレイ初期化 (mock ビルドのみ)
+  initDebugOverlay(() => {
+    const video = document.querySelector('video');
+    return {
+      pastDanmakuCount: pastDanmakuComments.length,
+      pastDanmakuIndex,
+      lastVideoTime,
+      videoCurrentTime: video?.currentTime ?? -1,
+      videoDuration: video?.duration ?? -1,
+      videoPaused: video?.paused ?? true,
+      danmakuExists: danmaku !== null,
+      danmakuPaused: danmaku?.isPaused() ?? true,
+      danmakuActiveCount: danmaku?.getActiveCount() ?? 0,
+      isLiveEdge: isVideoAtLiveEdge(),
+      isBridgeTarget: isBridgeTargetTitle(),
+      nicoBridgeConnected,
+      currentTitleId,
+      overlayExists: !!document.getElementById('nfjk-danmaku-overlay'),
+      dripQueueLength: nicoDanmakuDripQueue.length,
+      droppedComments: perfDroppedComments,
+      totalReceived: perfTotalReceived,
+      pauseBufferLength: pauseBuffer.length,
+    };
+  });
 
   // 起動時にIndexedDBクリーンアップ
   cleanupOldComments().then((deleted) => {
@@ -677,13 +1093,8 @@ async function handleCommentSend(text: string, titleId: string, fromSidePanel = 
   }
 
   // ローカル描画 (自分のコメント)
+  debugLog(`send: "${text}" vt=${videoTime.toFixed(1)} admin=${isAdmin}`);
   danmaku?.draw({ text, mine: true, admin: isAdmin });
-
-  // バッファフラッシュ: 蓄積された受信コメントをまとめて描画
-  for (const item of danmakuBuffer) {
-    danmaku?.draw(item);
-  }
-  danmakuBuffer = [];
 
   // サイドパネルに送信 (サイドパネル経由のコメントは楽観UIで表示済みなので送らない)
   if (!fromSidePanel) {
@@ -700,12 +1111,13 @@ async function handleCommentSend(text: string, titleId: string, fromSidePanel = 
     userId: currentUserId,
     admin: isAdmin ? '1' : undefined,
     signature,
+    nicoLinked: nicoBridgeHasSession || undefined,
   };
   room?.send(msg);
 
-  // ニコ生ブリッジ投稿 (連携ユーザーのみ)
-  if (nicoBridgeHasSession) {
-    chrome.runtime.sendMessage({ type: 'nico-bridge-post', text }).catch(() => {});
+  // ニコ生ブリッジ投稿 (連携ユーザーのみ、管理者コメントは除外)
+  if (nicoBridgeHasSession && !isAdmin) {
+    safeSendMessage({ type: 'nico-bridge-post', text });
   }
 
   // IndexedDB 保存
@@ -717,8 +1129,10 @@ async function handleCommentSend(text: string, titleId: string, fromSidePanel = 
     titleId,
     videoTime,
     userId: currentUserId,
+    admin: isAdmin || undefined,
+    nicoLinked: nicoBridgeHasSession || undefined,
   };
-  saveComment(comment).catch(console.error);
+  queueCommentSave(comment);
   // 過去弾幕配列に挿入 (次回シーク時に再生可能にする)
   insertPastDanmakuComment(comment);
 }
@@ -732,7 +1146,9 @@ function enqueueNicoDanmaku(item: DanmakuItem): void {
   nicoDanmakuDripQueue.push(item);
   // キュー上限超過 → 古いコメントを破棄 (過負荷時の安全弁)
   if (nicoDanmakuDripQueue.length > DANMAKU_DRIP_MAX_QUEUE) {
-    nicoDanmakuDripQueue.splice(0, nicoDanmakuDripQueue.length - DANMAKU_DRIP_MAX_QUEUE);
+    const dropCount = nicoDanmakuDripQueue.length - DANMAKU_DRIP_MAX_QUEUE;
+    perfDroppedComments += dropCount;
+    nicoDanmakuDripQueue.splice(0, dropCount);
   }
   // ドレインが未起動なら遅延開始 (バッチ蓄積待ち)
   // ※ 同期的に drain するとメッセージが1件ずつ即座に描画されてバーストする
@@ -750,21 +1166,35 @@ const DANMAKU_DRIP_WAIT_MS = 200;
 function drainNicoDanmakuDrip(): void {
   nicoDanmakuDripTimer = null;
   if (nicoDanmakuDripQueue.length === 0) return;
-  // 一時停止中はドレインを停止 (resume 時に pauseBuffer 経由で処理)
-  if (danmaku?.isPaused()) {
-    for (const item of nicoDanmakuDripQueue) {
-      pauseBuffer.push(item);
-    }
-    nicoDanmakuDripQueue.length = 0;
+  // danmaku 未初期化: キューに残して待機 (initialize 完了後に再開)
+  if (!danmaku) {
+    nicoDanmakuDripTimer = setTimeout(drainNicoDanmakuDrip, DANMAKU_DRIP_WAIT_MS);
     return;
   }
-  // 弾幕が満杯の場合: 破棄せずキューに残して待機
-  if (danmaku && !danmaku.canDraw()) {
+  // 一時停止中の処理
+  if (danmaku.isPaused()) {
+    // ライブ配信中は強制 resume して弾幕を流し続ける
+    if (isBridgeTargetTitle()) {
+      log('Drip queue: danmaku paused during live broadcast, forcing resume');
+      danmaku.resume();
+      pauseBuffer = [];
+    } else {
+      // 通常再生: pauseBuffer に退避 (resume 時に処理)
+      for (const item of nicoDanmakuDripQueue) {
+        pauseBuffer.push(item);
+      }
+      nicoDanmakuDripQueue.length = 0;
+      return;
+    }
+  }
+  // 描画不可 (満杯 or コンテナ不健全): キューに残して待機 + オーバーレイ復旧トリガー
+  if (!danmaku.canDraw()) {
+    checkOverlayHealth();
     nicoDanmakuDripTimer = setTimeout(drainNicoDanmakuDrip, DANMAKU_DRIP_WAIT_MS);
     return;
   }
   const item = nicoDanmakuDripQueue.shift()!;
-  danmaku?.draw(item);
+  danmaku.draw(item);
   if (nicoDanmakuDripQueue.length > 0) {
     // 適応的間隔: バッチ全体を MAX_TOTAL_MS 以内に完了
     // 14コメント → 500/14=36ms間隔 → 504ms で全表示
@@ -791,11 +1221,11 @@ function flushNicoDanmakuDrip(): void {
 
 /** ニコ生コメント受信処理 */
 function handleNicoBridgeComment(msg: NicoBridgeCommentMessage): void {
+  perfTotalReceived++;
   // コメント表示OFFなら無視 (連携ユーザーでもOFF)
   if (settings.showNicoComments === false) return;
-  // アーカイブ再生時はリアルタイムのニコ生コメントを表示しない
-  // ただしブリッジ接続中かつ対象タイトルはライブ配信中のシグナル (/watch/ URLでも許可)
-  if (!isVideoAtLiveEdge() && !isBridgeTargetTitle()) return;
+  // ブリッジ対象タイトルでなければスキップ
+  if (!isBridgeTargetTitle()) return;
 
   // 重複排除 (IDベース)
   if (receivedNicoCommentIds.has(msg.id)) return;
@@ -812,6 +1242,9 @@ function handleNicoBridgeComment(msg: NicoBridgeCommentMessage): void {
     }
   }
 
+  // userId が無い匿名コメントは除外 (NG設定不可のため表示しない)
+  if (!msg.nicoUserId) return;
+
   const text = sanitizeText(msg.text, MAX_COMMENT_TEXT_LENGTH);
   if (!text) return;
 
@@ -821,14 +1254,21 @@ function handleNicoBridgeComment(msg: NicoBridgeCommentMessage): void {
 
   const atLiveEdge = isVideoAtLiveEdge();
 
-  // videoTime: ライブエッジ時は現在再生位置、追っかけ時もそのまま
-  const videoTime = getVideoCurrentTime();
+  // videoTime: ライブエッジなら現在位置、追っかけなら video.duration ≈ ライブ位置
+  let videoTime: number;
+  if (atLiveEdge) {
+    videoTime = getVideoCurrentTime();
+  } else {
+    const video = document.querySelector('video');
+    videoTime = (video && isFinite(video.duration) && video.duration > 0) ? video.duration : getVideoCurrentTime();
+  }
 
-  // ライブエッジ時のみ弾幕描画 + サイドパネル送信
-  // 追っかけ再生時は保存のみ (過去コメント再生で表示される)
+  // サイドパネルに送信 (追っかけ再生時はサイドパネル側でバッファ制御)
+  sendToSidePanel(text, msg.nickname, msg.timestamp, false, false, videoTime, msg.nicoUserId, 'niconico');
+
+  // ライブエッジ: 弾幕即座に描画 / 追っかけ: pastDanmaku が担当
   if (atLiveEdge) {
     enqueueNicoDanmaku({ text });
-    sendToSidePanel(text, msg.nickname, msg.timestamp, false, false, videoTime, msg.nicoUserId, 'niconico');
   }
 
   // IndexedDB に保存 (アーカイブ弾幕再生用 — 追っかけ中も常に保存)
@@ -842,7 +1282,7 @@ function handleNicoBridgeComment(msg: NicoBridgeCommentMessage): void {
     userId: msg.nicoUserId,
     source: 'niconico',
   };
-  saveComment(comment).catch(console.error);
+  queueCommentSave(comment);
   insertPastDanmakuComment(comment);
 
   // P2P再配信 (連携ユーザーのみ)
@@ -861,12 +1301,16 @@ function handleNicoBridgeComment(msg: NicoBridgeCommentMessage): void {
 
 // --- けいふぉんと注入 ---
 
-function injectKeifont(): void {
-  if (document.getElementById('nfjk-keifont')) return;
-  const fontUrl = chrome.runtime.getURL('fonts/keifont.ttf');
+function injectBundledFonts(): void {
+  if (document.getElementById('nfjk-bundled-fonts')) return;
+  const keifontUrl = chrome.runtime.getURL('fonts/keifont.ttf');
+  const notoUrl = chrome.runtime.getURL('fonts/NotoSansJP.ttf');
   const style = document.createElement('style');
-  style.id = 'nfjk-keifont';
-  style.textContent = `@font-face { font-family: 'keifont'; src: url('${fontUrl}') format('truetype'); font-display: swap; }`;
+  style.id = 'nfjk-bundled-fonts';
+  style.textContent = [
+    `@font-face { font-family: 'keifont'; src: url('${keifontUrl}') format('truetype'); font-display: swap; }`,
+    `@font-face { font-family: 'NotoSansJP'; src: url('${notoUrl}') format('truetype'); font-weight: 100 900; font-display: swap; }`,
+  ].join('\n');
   document.head.appendChild(style);
 }
 
@@ -932,17 +1376,18 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // 動画シーク (サイドパネルからのオフセット合わせ)
   if (message.type === 'seek-video') {
     if (typeof message.time === 'number') {
-      document.dispatchEvent(new CustomEvent('nfjk-seek', {
-        detail: { timeMs: message.time * 1000 },
-      }));
+      const video = document.querySelector('video');
+      if (video) {
+        debugLog(`seek-video: ${video.currentTime.toFixed(2)} → ${message.time.toFixed(2)}`);
+        video.currentTime = message.time;
+      } else {
+        debugLog('seek-video: video element not found');
+      }
     }
   }
-  // 弾幕バッファフラッシュ (サイドパネルからの通知)
+  // 弾幕バッファフラッシュ (レガシー: 現在は即座描画のため空操作)
   if (message.type === 'flush-danmaku') {
-    for (const item of danmakuBuffer) {
-      danmaku?.draw(item);
-    }
-    danmakuBuffer = [];
+    // P2Pコメントは受信時に即座に描画されるため、バッファフラッシュは不要
   }
   // 弾幕オーバーレイ再初期化 (タブ復帰時にオーバーレイが外れた場合のリカバリ)
   if (message.type === 'reinit-danmaku') {
@@ -976,7 +1421,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // ニコ生ブリッジ状態更新
   if (message.type === 'nico-bridge-state') {
     nicoBridgeHasSession = !!message.hasNicoSession;
+    const wasConnected = nicoBridgeConnected;
     nicoBridgeConnected = message.status === 'connected';
+    // ブリッジ接続開始 → ライブ弾幕ヘルスチェック開始
+    if (nicoBridgeConnected && !wasConnected) {
+      startLiveDanmakuHealthCheck();
+      // 弾幕が paused なら即座に resume
+      if (danmaku?.isPaused()) {
+        danmaku.resume();
+        pauseBuffer = [];
+      }
+    } else if (!nicoBridgeConnected && wasConnected) {
+      stopLiveDanmakuHealthCheck();
+    }
   }
   // ニコ生コメント受信
   if (message.type === 'nico-bridge-comment' && currentTitleId) {
@@ -987,6 +1444,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   // 弾幕描画のみ (テスト・プレビュー用、P2P送信なし)
   if (message.type === 'render-danmaku') {
     danmaku?.draw({ text: message.text, mine: message.mine ?? false, admin: message.admin ?? false });
+  }
+  // 管理者向けピアカウント統計
+  if (message.type === 'get-peer-stats') {
+    sendResponse(getPeerStats());
+    return;
   }
   if (message.type === 'storage-query') {
     const { method, args } = message;
@@ -1031,6 +1493,62 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true; // 非同期 sendResponse
   }
 });
+
+// モックモード: ページスクリプトからの postMessage でリアルタイムコメント注入
+declare const __DEV_MOCK__: boolean;
+if (typeof __DEV_MOCK__ !== 'undefined' && __DEV_MOCK__) {
+  window.addEventListener('message', (event) => {
+    if (!currentTitleId) return;
+
+    // ブリッジ経路モック: handleNicoBridgeComment() を通す (ドリップキュー・重複排除・NGフィルター全経路テスト)
+    if (event.data?.type === 'nfjk-mock-bridge-comment') {
+      const c = event.data.comment;
+      if (!c?.text || !c?.nickname) return;
+      const msg: NicoBridgeCommentMessage = {
+        type: 'nico-bridge-comment',
+        id: c.id || `mock-nico-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        text: c.text,
+        nickname: c.nickname,
+        timestamp: c.timestamp || Date.now(),
+        nicoUserId: c.userId || `mock-nico-${(perfTotalReceived % 500) + 1}`,
+      };
+      handleNicoBridgeComment(msg);
+      return;
+    }
+
+    // 直接描画モック: danmaku.draw() に直接渡す (ドリップキューをバイパス)
+    if (event.data?.type !== 'nfjk-mock-comment') return;
+    const c = event.data.comment;
+    if (!c?.text || !c?.nickname) return;
+
+    const tid = currentTitleId;
+    const text = sanitizeText(c.text, MAX_COMMENT_TEXT_LENGTH);
+    if (!text) return;
+    const comment: Comment = {
+      id: `mock-stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      text,
+      nickname: c.nickname,
+      timestamp: c.timestamp || Date.now(),
+      titleId: tid,
+      videoTime: c.videoTime ?? getVideoCurrentTime(),
+      userId: c.userId,
+      source: (c.source as CommentSource) || 'niconico',
+    };
+
+    // 弾幕描画
+    danmaku?.draw({ text: comment.text, mine: false });
+    // IndexedDB保存
+    queueCommentSave(comment);
+    // 過去弾幕配列に挿入
+    insertPastDanmakuComment(comment);
+    // サイドパネルに転送
+    safeSendMessage({
+      type: 'comment',
+      ...comment,
+      _relayed: false,
+    });
+  });
+}
 
 // 初回起動
 initialize();

@@ -169,6 +169,7 @@ const cs: TranslationKeys = {
 
   // --- Vstup komentáře ---
   input_placeholder: 'Napsat komentář... (max 45 znaků)',
+  input_placeholder_admin: 'Komentář administrátora (max 45 znaků)',
   input_send_title: 'Odeslat',
   input_ng_blocked: 'Tento komentář nelze odeslat',
 
@@ -213,6 +214,7 @@ const cs: TranslationKeys = {
 
   // --- UI obsahového skriptu ---
   cs_input_placeholder: 'Napsat komentář...',
+  cs_input_placeholder_admin: 'Komentář administrátora',
   cs_send: 'Odeslat',
   cs_danmaku_toggle: 'Danmaku ZAP/VYP',
   cs_danmaku_label: 'D',

@@ -170,6 +170,7 @@ const ja: TranslationKeys = {
 
   // --- コメント入力 ---
   input_placeholder: 'コメントを入力... (45文字まで)',
+  input_placeholder_admin: '管理者コメント (45文字まで)',
   input_send_title: '送信',
   input_ng_blocked: 'このコメントは送信できません',
 
@@ -214,6 +215,7 @@ const ja: TranslationKeys = {
 
   // --- コンテンツスクリプトUI ---
   cs_input_placeholder: 'コメントを入力...',
+  cs_input_placeholder_admin: '管理者コメント',
   cs_send: '送信',
   cs_danmaku_toggle: '弾幕ON/OFF',
   cs_danmaku_label: '弾',

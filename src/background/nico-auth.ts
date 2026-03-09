@@ -12,7 +12,12 @@ import { log, warn } from '../utils/logger';
 
 const NICO_OAUTH_AUTHORIZE = 'https://oauth.nicovideo.jp/oauth2/authorize';
 const NICO_OAUTH_TOKEN = 'https://oauth.nicovideo.jp/oauth2/token';
-const STORAGE_KEY = 'nicoOAuthToken';
+const STORAGE_KEY_PREFIX = 'nicoOAuthToken';
+
+/** Google アカウント別のストレージキーを生成 */
+function storageKey(googleId: string): string {
+  return `${STORAGE_KEY_PREFIX}_${googleId}`;
+}
 
 export interface NicoOAuthToken {
   accessToken: string;
@@ -30,7 +35,7 @@ export interface NicoOAuthConfig {
  * OAuth2 認可フローを開始
  * ユーザーにニコニコの認可画面を表示し、トークンを取得する
  */
-export async function startNicoOAuth(config: NicoOAuthConfig): Promise<NicoOAuthToken> {
+export async function startNicoOAuth(config: NicoOAuthConfig, googleId: string): Promise<NicoOAuthToken> {
   const redirectUri = chrome.identity.getRedirectURL('nicovideo');
   log('[NicoAuth] Redirect URI:', redirectUri);
 
@@ -62,8 +67,8 @@ export async function startNicoOAuth(config: NicoOAuthConfig): Promise<NicoOAuth
   // 認可コード → アクセストークン交換
   const tokenData = await exchangeCodeForToken(config, code, redirectUri);
 
-  // ストレージに保存
-  await saveNicoToken(tokenData);
+  // ストレージに保存 (Google アカウント別)
+  await saveNicoToken(tokenData, googleId);
 
   return tokenData;
 }
@@ -109,6 +114,7 @@ async function exchangeCodeForToken(
 export async function refreshNicoToken(
   config: NicoOAuthConfig,
   refreshToken: string,
+  googleId?: string,
 ): Promise<NicoOAuthToken> {
   const res = await fetch(NICO_OAUTH_TOKEN, {
     method: 'POST',
@@ -134,15 +140,34 @@ export async function refreshNicoToken(
     refreshToken: data.refresh_token || refreshToken,
   };
 
-  await saveNicoToken(token);
+  if (googleId) {
+    await saveNicoToken(token, googleId);
+  }
   return token;
 }
 
 /**
  * 保存済みトークンを読み込み (期限切れなら自動リフレッシュ)
+ * @param config OAuth 設定 (リフレッシュ用)
+ * @param googleId Google アカウント ID (アカウント別ストレージ)
  */
-export async function loadNicoToken(config?: NicoOAuthConfig): Promise<NicoOAuthToken | null> {
-  const { [STORAGE_KEY]: token } = await chrome.storage.local.get(STORAGE_KEY);
+export async function loadNicoToken(config?: NicoOAuthConfig, googleId?: string): Promise<NicoOAuthToken | null> {
+  if (!googleId) return null;
+  const key = storageKey(googleId);
+  const result = await chrome.storage.local.get(key);
+  let token = result[key];
+
+  // v1.0.5→v1.0.6 マイグレーション: 旧グローバルキーからの移行
+  if (!token) {
+    const legacy = await chrome.storage.local.get('nicoOAuthToken');
+    if (legacy.nicoOAuthToken?.accessToken) {
+      log('[NicoAuth] Migrating legacy token to per-user key');
+      token = legacy.nicoOAuthToken;
+      await chrome.storage.local.set({ [key]: token });
+      await chrome.storage.local.remove('nicoOAuthToken');
+    }
+  }
+
   if (!token) return null;
 
   // 期限切れチェック (5分のマージン)
@@ -150,15 +175,15 @@ export async function loadNicoToken(config?: NicoOAuthConfig): Promise<NicoOAuth
     if (token.refreshToken && config) {
       try {
         log('[NicoAuth] Token expired, refreshing...');
-        return await refreshNicoToken(config, token.refreshToken);
+        return await refreshNicoToken(config, token.refreshToken, googleId);
       } catch (e) {
         warn('[NicoAuth] Token refresh failed:', e);
-        await clearNicoToken();
+        await clearNicoToken(googleId);
         return null;
       }
     }
     // リフレッシュ不可 → トークン無効
-    await clearNicoToken();
+    await clearNicoToken(googleId);
     return null;
   }
 
@@ -166,25 +191,30 @@ export async function loadNicoToken(config?: NicoOAuthConfig): Promise<NicoOAuth
 }
 
 /**
- * トークンをストレージに保存
+ * トークンをストレージに保存 (Google アカウント別)
  */
-async function saveNicoToken(token: NicoOAuthToken): Promise<void> {
-  await chrome.storage.local.set({ [STORAGE_KEY]: token });
-  log('[NicoAuth] Token saved');
+async function saveNicoToken(token: NicoOAuthToken, googleId: string): Promise<void> {
+  await chrome.storage.local.set({ [storageKey(googleId)]: token });
+  log('[NicoAuth] Token saved for', googleId);
 }
 
 /**
  * トークンを削除 (連携解除)
+ * @param googleId Google アカウント ID
  */
-export async function clearNicoToken(): Promise<void> {
-  await chrome.storage.local.remove(STORAGE_KEY);
-  log('[NicoAuth] Token cleared');
+export async function clearNicoToken(googleId?: string): Promise<void> {
+  if (!googleId) return;
+  await chrome.storage.local.remove(storageKey(googleId));
+  log('[NicoAuth] Token cleared for', googleId);
 }
 
 /**
  * ニコニコ連携済みかどうか
+ * @param googleId Google アカウント ID
  */
-export async function isNicoLinked(): Promise<boolean> {
-  const { [STORAGE_KEY]: token } = await chrome.storage.local.get(STORAGE_KEY);
-  return !!token?.accessToken;
+export async function isNicoLinked(googleId?: string): Promise<boolean> {
+  if (!googleId) return false;
+  const key = storageKey(googleId);
+  const result = await chrome.storage.local.get(key);
+  return !!result[key]?.accessToken;
 }

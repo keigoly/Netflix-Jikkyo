@@ -169,6 +169,7 @@ const en: TranslationKeys = {
 
   // --- Comment input ---
   input_placeholder: 'Type a comment... (max 45 chars)',
+  input_placeholder_admin: 'Admin comment (max 45 chars)',
   input_send_title: 'Send',
   input_ng_blocked: 'This comment cannot be sent',
 
@@ -213,6 +214,7 @@ const en: TranslationKeys = {
 
   // --- Content script UI ---
   cs_input_placeholder: 'Type a comment...',
+  cs_input_placeholder_admin: 'Admin comment',
   cs_send: 'Send',
   cs_danmaku_toggle: 'Danmaku ON/OFF',
   cs_danmaku_label: 'D',

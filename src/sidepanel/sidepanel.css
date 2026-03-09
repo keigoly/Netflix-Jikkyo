@@ -166,26 +166,28 @@ body.nfjk-popout .popout-btn {
 
 .title-reload-btn {
   flex-shrink: 0;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   border: none;
-  border-radius: 4px;
+  border-radius: 50%;
   background: transparent;
   color: rgba(255, 255, 255, 0.4);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 0.2s, background 0.2s;
+  transition: color 0.15s, background-color 0.15s, transform 0.08s;
 }
 
 .title-reload-btn:hover {
   color: #fff;
-  background: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.12);
 }
 
 .title-reload-btn:active {
-  transform: scale(0.9);
+  transform: scale(0.85);
+  background-color: rgba(255, 255, 255, 0.22);
+  transition: transform 0.04s, background-color 0.04s;
 }
 
 .title-reload-btn.spinning svg {
@@ -673,7 +675,8 @@ body.nfjk-bg-light .title-subtitle { color: #555; }
 body.nfjk-bg-light .title-description { color: #666; }
 body.nfjk-bg-light .title-info { border-color: #ddd; }
 body.nfjk-bg-light .title-reload-btn { color: rgba(0, 0, 0, 0.35); }
-body.nfjk-bg-light .title-reload-btn:hover { color: #222; background: rgba(0, 0, 0, 0.08); }
+body.nfjk-bg-light .title-reload-btn:hover { color: #222; background-color: rgba(0, 0, 0, 0.08); }
+body.nfjk-bg-light .title-reload-btn:active { background-color: rgba(0, 0, 0, 0.16); }
 
 body.nfjk-bg-light .stats-bar {
   background: #eee;
@@ -1632,6 +1635,24 @@ body.nfjk-bg-black .field input[type="text"] {
 .comment-row.admin .comment-text {
   color: #FFE133;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* 管理者コメント マーキー (テキストがはみ出す場合) */
+.comment-row.admin .comment-text.nfjk-admin-marquee {
+  mask-image: linear-gradient(to right, black 0%, black 90%, transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, black 0%, black 90%, transparent 100%);
+}
+
+.comment-row.admin .comment-text .nfjk-marquee-inner {
+  display: inline-block;
+  animation: nfjk-marquee-scroll var(--nfjk-marquee-duration, 10s) linear infinite;
+  animation-delay: 1.5s;
+}
+
+.comment-row.admin .comment-text .nfjk-marquee-inner:hover {
+  animation-play-state: paused;
 }
 
 /* 過去ログ行 */

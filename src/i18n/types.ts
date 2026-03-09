@@ -174,6 +174,7 @@ export interface TranslationKeys {
 
   // --- コメント入力 ---
   input_placeholder: string;
+  input_placeholder_admin: string;
   input_send_title: string;
   input_ng_blocked: string;
 
@@ -218,6 +219,7 @@ export interface TranslationKeys {
 
   // --- コンテンツスクリプトUI ---
   cs_input_placeholder: string;
+  cs_input_placeholder_admin: string;
   cs_send: string;
   cs_danmaku_toggle: string;
   cs_danmaku_label: string;

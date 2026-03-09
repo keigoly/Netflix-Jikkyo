@@ -40,7 +40,9 @@
       border-radius: 8px;
       border: 1px solid #333;
       font-size: 13px;
-      min-width: 240px;
+      min-width: 280px;
+      max-height: calc(100vh - 24px);
+      overflow-y: auto;
       user-select: none;
     }
     .dev-panel h3 {
@@ -48,6 +50,12 @@
       margin-bottom: 10px;
       font-size: 14px;
       font-weight: 700;
+    }
+    .dev-panel h4 {
+      color: #E50914;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 6px;
     }
     .dev-panel .row {
       display: flex;
@@ -70,9 +78,10 @@
     }
     .badge-vod { background: #2563eb; }
     .badge-live { background: #E50914; }
-    .badge-event { background: #9333ea; }
+    .badge-archive { background: #9333ea; }
 
-    .dev-panel input[type="text"] {
+    .dev-panel input[type="text"],
+    .dev-panel input[type="number"] {
       background: #333;
       border: 1px solid #555;
       color: #fff;
@@ -80,6 +89,10 @@
       border-radius: 4px;
       width: 100px;
       font-size: 12px;
+    }
+    .dev-panel input[type="range"] {
+      flex: 1;
+      accent-color: #E50914;
     }
     .dev-panel button {
       background: #E50914;
@@ -112,6 +125,16 @@
       font-size: 11px;
       font-family: monospace;
     }
+    .dev-panel .sim-values {
+      color: #0f0;
+      font-size: 10px;
+      font-family: monospace;
+      line-height: 1.6;
+      background: rgba(0,255,0,0.05);
+      padding: 6px 8px;
+      border-radius: 4px;
+      margin-top: 6px;
+    }
     .dev-panel .live-indicator {
       color: #E50914;
       font-weight: 700;
@@ -132,6 +155,14 @@
     }
     .dev-panel .collapse-btn:hover { color: #fff; background: none; }
     .dev-panel.collapsed .panel-body { display: none; }
+    .dev-panel .range-label {
+      font-size: 11px;
+      color: #aaa;
+      min-width: 40px;
+      text-align: right;
+      font-family: monospace;
+    }
+    .dev-panel .section-disabled { opacity: 0.4; pointer-events: none; }
   </style>
 </head>
 <body>
@@ -176,13 +207,55 @@
 
       <hr>
 
-      <!-- ライブシミュレーション -->
+      <!-- ライブ配信シミュレーション (実データ準拠) -->
+      <h4>Live Simulation</h4>
+
+      <div class="row">
+        <label>
+          <input type="checkbox" id="liveSimToggle" onchange="toggleLiveSim()">
+          Netflix ライブ配信シミュレーション
+        </label>
+      </div>
+
+      <div id="liveSimControls" class="section-disabled">
+        <!-- 開始時点の経過時間 -->
+        <div class="row">
+          <span style="font-size:11px;color:#aaa;min-width:80px">経過時間(秒):</span>
+          <input type="number" id="liveSimBase" value="12800" style="width:80px">
+          <span style="font-size:10px;color:#666">起動時の仮想経過</span>
+        </div>
+
+        <!-- ライブエッジ遅延 (追っかけ再生テスト用) -->
+        <div class="row">
+          <span style="font-size:11px;color:#aaa;min-width:80px">エッジ遅延:</span>
+          <input type="range" id="liveEdgeDelay" min="0" max="300" value="15" oninput="updateDelayLabel()">
+          <span class="range-label" id="delayLabel">15s</span>
+        </div>
+        <div style="font-size:10px;color:#666;margin:-2px 0 4px 0">
+          0s=ライブエッジ / 30s超=追っかけ再生 / 120s超=大幅遅延
+        </div>
+
+        <!-- バッファ幅 -->
+        <div class="row">
+          <span style="font-size:11px;color:#aaa;min-width:80px">バッファ幅:</span>
+          <input type="range" id="bufferWidth" min="5" max="120" value="30" oninput="updateBufferLabel()">
+          <span class="range-label" id="bufferLabel">30s</span>
+        </div>
+
+        <!-- シミュレート値 リアルタイム表示 -->
+        <div class="sim-values" id="simValues">--</div>
+      </div>
+
+      <hr>
+
+      <!-- レガシー: duration = Infinity モード -->
       <div class="row">
         <label>
           <input type="checkbox" id="fakeLive" onchange="toggleFakeLive()">
-          duration = Infinity (ライブ偽装)
+          duration = Infinity (旧方式)
         </label>
       </div>
+
       <div class="row">
         <button class="secondary" onclick="seekToLiveEdge()">Live Edge へシーク</button>
       </div>
@@ -201,6 +274,70 @@
         <input type="text" id="customUrl" placeholder="Video URL" style="flex:1">
         <button class="secondary" onclick="loadCustomVideo()">Load</button>
       </div>
+
+      <hr>
+
+      <!-- ダミーコメント生成 -->
+      <h4>Comments</h4>
+      <div class="row">
+        <span style="font-size:11px;color:#aaa;min-width:50px">件数:</span>
+        <input type="number" id="genCount" value="15000" style="width:80px">
+        <button class="secondary" onclick="generateNicoComments()" style="flex:1">一括生成</button>
+      </div>
+      <div id="genResult" style="color:#0f0;font-size:11px;display:none"></div>
+
+      <!-- リアルタイムストリーム注入 -->
+      <div class="row">
+        <span style="font-size:11px;color:#aaa;min-width:50px">件/秒:</span>
+        <input type="number" id="streamRate" value="5" min="1" max="500" style="width:60px">
+        <button class="secondary" id="streamBtn" onclick="toggleStream()" style="flex:1">ストリーム開始</button>
+      </div>
+      <div class="row">
+        <label style="font-size:11px;color:#aaa">
+          <input type="checkbox" id="streamBridgeRoute" checked>
+          ブリッジ経路 (ドリップキュー経由)
+        </label>
+      </div>
+      <div id="streamResult" style="color:#0f0;font-size:11px;display:none"></div>
+
+      <!-- バーストテスト -->
+      <h4>Burst Test</h4>
+      <div style="font-size:10px;color:#666;margin-bottom:6px">
+        ゴールシーン等の瞬間的な大量コメントをシミュレート
+      </div>
+      <div class="row">
+        <span style="font-size:11px;color:#aaa;min-width:50px">件数:</span>
+        <input type="number" id="burstCount" value="50" min="10" max="500" style="width:60px">
+        <button class="secondary" onclick="fireBurst()" style="flex:1">バースト発火</button>
+      </div>
+      <div id="burstResult" style="color:#0f0;font-size:11px;display:none"></div>
+
+      <!-- コメントクリア -->
+      <div class="row">
+        <button class="secondary" onclick="clearComments()" style="flex:1">IndexedDB コメント全削除</button>
+      </div>
+      <div id="clearResult" style="color:#0f0;font-size:11px;display:none"></div>
+
+      <hr>
+
+      <!-- Netflix 広告シミュレーション -->
+      <h4>Ad Break Simulation</h4>
+      <div style="font-size:10px;color:#666;margin-bottom:6px">
+        video要素の差し替えをシミュレート。<br>
+        弾幕が停止しないことを確認するテスト。
+      </div>
+      <div class="row">
+        <span style="font-size:11px;color:#aaa;min-width:50px">秒数:</span>
+        <input type="number" id="adDuration" value="5" min="1" max="30" style="width:60px">
+        <button class="secondary" onclick="simulateAdBreak()" id="adBtn" style="flex:1">広告シミュレート</button>
+      </div>
+      <div id="adResult" style="font-size:11px;display:none"></div>
+
+      <hr>
+
+      <!-- 弾幕レンダラー状態 -->
+      <h4>Danmaku State</h4>
+      <div class="sim-values" id="danmakuState" style="white-space:pre;font-size:10px">--</div>
 
       <div class="info">
         Panel: <kbd>Ctrl+D</kbd> 表示切替<br>
@@ -238,7 +375,7 @@
     const badgeConfig = {
       watch: { text: 'VOD', cls: 'badge-vod' },
       live:  { text: 'LIVE', cls: 'badge-live' },
-      event: { text: 'EVENT', cls: 'badge-event' },
+      event: { text: 'ARCHIVE', cls: 'badge-archive' },
     };
     const badge = badgeConfig[urlType] || badgeConfig.watch;
     typeBadge.textContent = badge.text;
@@ -247,42 +384,181 @@
     // 動画ロード
     video.src = VIDEO_SOURCES.bunny;
 
-    // --- ライブ偽装 ---
+    // =========================================================
+    //  Netflix ライブ配信シミュレーション (実データ準拠)
+    //
+    //  実測値 (2026-03-07 Netflix WBC ライブ):
+    //    URL:      /watch/82146309  (/live/ ではない)
+    //    duration: 有限値 (増加し続ける, e.g. 16726.71)
+    //    ct:       duration - 15~31秒 (ライブエッジ付近)
+    //    buffered: [ct-20, ct+10] 程度 (狭い範囲)
+    //    seekable: [0, duration] (全範囲)
+    // =========================================================
+
+    let liveSimEnabled = false;
+    let liveSimStartedAt = 0;   // Date.now() when sim started
     let fakeLiveEnabled = false;
-    const originalDurationDesc = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'duration');
+
+    /** 偽 TimeRanges オブジェクトを生成 */
+    function fakeTimeRanges(ranges) {
+      return {
+        length: ranges.length,
+        start(i) {
+          if (i < 0 || i >= ranges.length) throw new DOMException('', 'IndexSizeError');
+          return ranges[i][0];
+        },
+        end(i) {
+          if (i < 0 || i >= ranges.length) throw new DOMException('', 'IndexSizeError');
+          return ranges[i][1];
+        },
+      };
+    }
+
+    /** 現在のシミュレーション値を計算 */
+    function getLiveSimValues() {
+      const baseDur = parseFloat(document.getElementById('liveSimBase').value) || 12800;
+      const elapsed = (Date.now() - liveSimStartedAt) / 1000;
+      const delay = parseFloat(document.getElementById('liveEdgeDelay').value) || 0;
+      const bufWidth = parseFloat(document.getElementById('bufferWidth').value) || 30;
+
+      const fakeDuration = baseDur + elapsed;
+      const fakeCurrentTime = Math.max(0, fakeDuration - delay);
+      const bufStart = Math.max(0, fakeCurrentTime - bufWidth * 0.6);
+      const bufEnd = Math.min(fakeDuration, fakeCurrentTime + bufWidth * 0.4);
+
+      return { fakeDuration, fakeCurrentTime, bufStart, bufEnd, delay, elapsed };
+    }
+
+    function toggleLiveSim() {
+      liveSimEnabled = document.getElementById('liveSimToggle').checked;
+      const controls = document.getElementById('liveSimControls');
+
+      if (liveSimEnabled) {
+        // レガシーモードが有効なら無効化
+        if (fakeLiveEnabled) {
+          document.getElementById('fakeLive').checked = false;
+          toggleFakeLive();
+        }
+
+        liveSimStartedAt = Date.now();
+        controls.classList.remove('section-disabled');
+
+        // video プロパティをオーバーライド
+        Object.defineProperty(video, 'duration', {
+          get() { return getLiveSimValues().fakeDuration; },
+          configurable: true,
+        });
+        Object.defineProperty(video, 'currentTime', {
+          get() { return getLiveSimValues().fakeCurrentTime; },
+          set() { /* シーク操作は無視 */ },
+          configurable: true,
+        });
+        Object.defineProperty(video, 'buffered', {
+          get() {
+            const v = getLiveSimValues();
+            return fakeTimeRanges([[v.bufStart, v.bufEnd]]);
+          },
+          configurable: true,
+        });
+        Object.defineProperty(video, 'seekable', {
+          get() {
+            const v = getLiveSimValues();
+            return fakeTimeRanges([[0, v.fakeDuration]]);
+          },
+          configurable: true,
+        });
+
+        liveIndicator.style.display = 'block';
+        typeBadge.textContent = 'LIVE';
+        typeBadge.className = 'badge badge-live';
+      } else {
+        controls.classList.add('section-disabled');
+
+        // プロトタイプの getter に戻す
+        delete video.duration;
+        delete video.currentTime;
+        delete video.buffered;
+        delete video.seekable;
+
+        liveIndicator.style.display = 'none';
+        // バッジを元に戻す
+        const b = badgeConfig[urlType] || badgeConfig.watch;
+        typeBadge.textContent = b.text;
+        typeBadge.className = 'badge ' + b.cls;
+      }
+    }
+
+    function updateDelayLabel() {
+      const v = document.getElementById('liveEdgeDelay').value;
+      document.getElementById('delayLabel').textContent = v + 's';
+    }
+
+    function updateBufferLabel() {
+      const v = document.getElementById('bufferWidth').value;
+      document.getElementById('bufferLabel').textContent = v + 's';
+    }
+
+    // /live/ URL ならデフォルトでライブシミュレーションON
+    if (urlType === 'live') {
+      document.getElementById('liveSimToggle').checked = true;
+      toggleLiveSim();
+    }
+
+    // =========================================================
+    //  レガシー: duration = Infinity モード
+    // =========================================================
 
     function toggleFakeLive() {
       fakeLiveEnabled = document.getElementById('fakeLive').checked;
       if (fakeLiveEnabled) {
+        // ライブシミュレーションが有効なら無効化
+        if (liveSimEnabled) {
+          document.getElementById('liveSimToggle').checked = false;
+          toggleLiveSim();
+        }
         Object.defineProperty(video, 'duration', { get: () => Infinity, configurable: true });
         liveIndicator.style.display = 'block';
       } else {
-        delete video.duration; // プロトタイプの getter に戻す
+        delete video.duration;
         liveIndicator.style.display = 'none';
       }
-    }
-
-    // /live/ or /event/ URL ではデフォルトでライブ偽装ON
-    if (urlType === 'live' || urlType === 'event') {
-      document.getElementById('fakeLive').checked = true;
-      toggleFakeLive();
     }
 
     // --- 動画情報表示 ---
     function formatTime(sec) {
       if (!isFinite(sec) || sec < 0) return '--:--';
-      const m = Math.floor(sec / 60);
+      const h = Math.floor(sec / 3600);
+      const m = Math.floor((sec % 3600) / 60);
       const s = Math.floor(sec % 60);
+      if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
       return `${m}:${s.toString().padStart(2, '0')}`;
     }
 
     setInterval(() => {
-      const dur = fakeLiveEnabled ? 'Infinity' : formatTime(video.duration);
-      const cur = formatTime(video.currentTime);
-      const edge = !fakeLiveEnabled && isFinite(video.duration) && video.duration > 0
-        ? (video.duration - video.currentTime < 30 ? ' [LIVE EDGE]' : '')
-        : '';
-      videoInfo.textContent = `${cur} / ${dur}${edge}`;
+      if (liveSimEnabled) {
+        const v = getLiveSimValues();
+        const gap = v.fakeDuration - v.fakeCurrentTime;
+        const edgeStatus = gap < 30 ? 'LIVE EDGE' : `behind ${Math.floor(gap)}s`;
+        videoInfo.textContent = `${formatTime(v.fakeCurrentTime)} / ${formatTime(v.fakeDuration)} [${edgeStatus}]`;
+
+        // シミュレート値のリアルタイム表示
+        document.getElementById('simValues').textContent =
+          `duration:    ${v.fakeDuration.toFixed(1)}\n` +
+          `currentTime: ${v.fakeCurrentTime.toFixed(1)}\n` +
+          `gap:         ${gap.toFixed(1)}s ${gap < 30 ? '(LIVE EDGE)' : '(CATCH-UP)'}\n` +
+          `buffered:    [${v.bufStart.toFixed(1)}, ${v.bufEnd.toFixed(1)}] (${(v.bufEnd - v.bufStart).toFixed(0)}s)\n` +
+          `seekable:    [0, ${v.fakeDuration.toFixed(1)}]`;
+      } else if (fakeLiveEnabled) {
+        const cur = formatTime(video.currentTime);
+        videoInfo.textContent = `${cur} / Infinity`;
+      } else {
+        const dur = formatTime(video.duration);
+        const cur = formatTime(video.currentTime);
+        const edge = isFinite(video.duration) && video.duration > 0
+          ? (video.duration - video.currentTime < 30 ? ' [LIVE EDGE]' : '')
+          : '';
+        videoInfo.textContent = `${cur} / ${dur}${edge}`;
+      }
     }, 250);
 
     // --- ナビゲーション ---
@@ -298,7 +574,10 @@
     }
 
     function seekToLiveEdge() {
-      if (isFinite(video.duration) && video.duration > 0) {
+      if (liveSimEnabled) {
+        document.getElementById('liveEdgeDelay').value = 15;
+        updateDelayLabel();
+      } else if (isFinite(video.duration) && video.duration > 0) {
         video.currentTime = Math.max(0, video.duration - 5);
       }
     }
@@ -320,6 +599,268 @@
         video.play().catch(() => {});
       }
     }
+
+    // --- ニコ生ダミーコメント生成 ---
+    const NICO_DUMMY_TEXTS = [
+      'きたー！', 'わこつ', '8888888', 'おつ', 'www',
+      'すごい', 'かわいい', 'ナイス！', 'うぽつ', 'いいね',
+      'ここすき', 'わろた', 'ktkr', 'おおお', 'えぇ...',
+      'ワロタ', 'それな', 'うまい', '草', 'GJ',
+      'マジか', 'やば', 'かっこいい', 'ほんとそれ', 'わかる',
+      'つよい', 'えぐい', 'うおお', 'さすが', 'ありがとう',
+      'たのしい', 'やばすぎ', 'ん？', 'おお！', 'すげー',
+      'こわい', 'かなしい', 'うれしい', 'まじか！', '神',
+      'もうだめだ', 'がんばれ', 'ファイト', 'いける！', 'おめでとう',
+      'なるほど', 'たしかに', 'ええやん', 'よき', 'うける',
+    ];
+
+    /** IndexedDB を開く共通ヘルパー */
+    function openCommentsDB() {
+      return new Promise((resolve, reject) => {
+        const req = indexedDB.open('netflix-jikkyo', 1);
+        req.onerror = () => reject(req.error);
+        req.onsuccess = () => resolve(req.result);
+        req.onupgradeneeded = (e) => {
+          const store = e.target.result.createObjectStore('comments', { keyPath: 'id' });
+          store.createIndex('byTitleId', 'titleId', { unique: false });
+          store.createIndex('byTimestamp', 'timestamp', { unique: false });
+        };
+      });
+    }
+
+    async function generateNicoComments() {
+      const resultEl = document.getElementById('genResult');
+      const count = parseInt(document.getElementById('genCount').value) || 15000;
+      resultEl.style.color = '#0f0';
+      resultEl.textContent = `${count} 件生成中...`;
+      resultEl.style.display = 'block';
+      try {
+        const db = await openCommentsDB();
+        const durationSec = 596; // Big Buck Bunny ~ 10分
+        const baseTimestamp = Date.now() - count * 1000;
+
+        // バッチ書き込み (1トランザクション1000件ずつ)
+        const BATCH = 1000;
+        for (let start = 0; start < count; start += BATCH) {
+          const end = Math.min(start + BATCH, count);
+          const tx = db.transaction('comments', 'readwrite');
+          const store = tx.objectStore('comments');
+          for (let i = start; i < end; i++) {
+            const text = NICO_DUMMY_TEXTS[i % NICO_DUMMY_TEXTS.length];
+            store.put({
+              id: `nico-dummy-${i}-${Math.random().toString(36).slice(2, 8)}`,
+              text: text,
+              nickname: `nico#${i + 1}`,
+              timestamp: baseTimestamp + i * 1000,
+              titleId: titleId,
+              videoTime: (i % durationSec) + Math.random() * 0.9,
+              userId: `nico-user-${(i % 500) + 1}`,
+              source: 'niconico',
+            });
+          }
+          await new Promise((r, j) => { tx.oncomplete = r; tx.onerror = j; });
+          resultEl.textContent = `生成中... ${end}/${count}`;
+        }
+        db.close();
+
+        resultEl.textContent = `${count} 件生成完了。1.5秒後にリロードします...`;
+        setTimeout(() => location.reload(), 1500);
+      } catch (e) {
+        resultEl.textContent = `Error: ${e.message}`;
+        resultEl.style.color = '#f55';
+      }
+    }
+
+    // --- リアルタイムストリーム注入 ---
+    let streamTimer = null;
+    let streamCount = 0;
+
+    /** ストリームコメント1件を送信 */
+    function sendStreamComment() {
+      streamCount++;
+      const text = NICO_DUMMY_TEXTS[streamCount % NICO_DUMMY_TEXTS.length];
+      const videoTime = video.currentTime || 0;
+      const useBridge = document.getElementById('streamBridgeRoute').checked;
+      window.postMessage({
+        type: useBridge ? 'nfjk-mock-bridge-comment' : 'nfjk-mock-comment',
+        comment: {
+          id: `mock-stream-${Date.now()}-${streamCount}`,
+          text: text,
+          nickname: `nico#${(streamCount % 500) + 1}`,
+          timestamp: Date.now(),
+          titleId: titleId,
+          videoTime: videoTime,
+          userId: `stream-user-${(streamCount % 500) + 1}`,
+          source: 'niconico',
+        },
+      }, '*');
+    }
+
+    function toggleStream() {
+      const btn = document.getElementById('streamBtn');
+      const resultEl = document.getElementById('streamResult');
+      if (streamTimer) {
+        clearInterval(streamTimer);
+        streamTimer = null;
+        btn.textContent = 'ストリーム開始';
+        resultEl.textContent = `停止 (累計 ${streamCount} 件注入)`;
+        return;
+      }
+      const rate = parseInt(document.getElementById('streamRate').value) || 5;
+      streamCount = 0;
+      btn.textContent = 'ストリーム停止';
+      resultEl.style.color = '#0f0';
+      resultEl.style.display = 'block';
+
+      // 高レートの場合: 1回のタイマーで複数件送信 (setInterval の最小間隔 ~4ms に対応)
+      const batchSize = Math.max(1, Math.ceil(rate / 250));
+      const intervalMs = Math.max(4, 1000 / (rate / batchSize));
+
+      streamTimer = setInterval(() => {
+        for (let i = 0; i < batchSize; i++) {
+          sendStreamComment();
+        }
+        const useBridge = document.getElementById('streamBridgeRoute').checked;
+        resultEl.textContent = `ストリーム中: ${streamCount} 件注入 (${rate}/秒) [${useBridge ? 'Bridge経路' : 'Direct'}]`;
+      }, intervalMs);
+    }
+
+    // --- バーストテスト ---
+    function fireBurst() {
+      const count = parseInt(document.getElementById('burstCount').value) || 50;
+      const resultEl = document.getElementById('burstResult');
+      const BURST_TEXTS = ['きたー！', 'うおおお', '8888888', 'すごい！', 'ナイス！', 'やばい！', '神！', 'GJ！', 'ｷﾀ━(ﾟ∀ﾟ)━!', 'ホームラン！'];
+      const start = performance.now();
+
+      for (let i = 0; i < count; i++) {
+        const text = BURST_TEXTS[i % BURST_TEXTS.length];
+        window.postMessage({
+          type: 'nfjk-mock-bridge-comment',
+          comment: {
+            id: `mock-burst-${Date.now()}-${i}`,
+            text: text,
+            nickname: `burst#${i + 1}`,
+            timestamp: Date.now(),
+            videoTime: video.currentTime || 0,
+            userId: `burst-user-${(i % 200) + 1}`,
+          },
+        }, '*');
+      }
+
+      const elapsed = (performance.now() - start).toFixed(1);
+      resultEl.style.color = '#0f0';
+      resultEl.style.display = 'block';
+      resultEl.textContent = `${count} 件バースト完了 (${elapsed}ms)`;
+      setTimeout(() => { resultEl.style.display = 'none'; }, 5000);
+    }
+
+    // --- コメントクリア (IndexedDB 直接操作) ---
+    async function clearComments() {
+      const resultEl = document.getElementById('clearResult');
+      try {
+        const db = await openCommentsDB();
+        const tx = db.transaction('comments', 'readwrite');
+        const store = tx.objectStore('comments');
+        const countBefore = await new Promise(r => { const req = store.count(); req.onsuccess = () => r(req.result); });
+        store.clear();
+        await new Promise((resolve, reject) => { tx.oncomplete = resolve; tx.onerror = reject; });
+        db.close();
+        resultEl.textContent = `${countBefore} 件削除しました。1.5秒後にリロードします...`;
+        resultEl.style.display = 'block';
+        setTimeout(() => location.reload(), 1500);
+      } catch (e) {
+        resultEl.textContent = `Error: ${e.message}`;
+        resultEl.style.color = '#f55';
+        resultEl.style.display = 'block';
+      }
+    }
+
+    // --- Netflix 広告シミュレーション ---
+    // 実際の Netflix 広告: video要素を差し替えて広告動画を再生 → 終了後に元のvideoに戻す
+    // v1.0.6 で修正した「danmaku.paused が永久固定になるバグ」の再現テスト
+    async function simulateAdBreak() {
+      const adBtn = document.getElementById('adBtn');
+      const adResult = document.getElementById('adResult');
+      const duration = parseInt(document.getElementById('adDuration').value) || 5;
+      const playerView = document.querySelector('.watch-video--player-view');
+      const mainVideo = document.getElementById('player');
+
+      adBtn.disabled = true;
+      adResult.style.color = '#ff0';
+      adResult.style.display = 'block';
+      adResult.textContent = `広告 ${duration}秒...`;
+
+      // 1. メイン動画を一時停止
+      mainVideo.pause();
+
+      // 2. 広告用の新しいvideo要素を作成 (Netflix の挙動を再現)
+      const adVideo = document.createElement('video');
+      adVideo.src = VIDEO_SOURCES.sintel; // 広告の代わり
+      adVideo.style.cssText = mainVideo.style.cssText || 'width:100%;height:100%;object-fit:contain;background:#000';
+      adVideo.autoplay = true;
+
+      // 3. メイン動画を隠して広告を表示
+      mainVideo.style.display = 'none';
+      playerView.appendChild(adVideo);
+      try { await adVideo.play(); } catch {}
+
+      // 4. カウントダウン
+      let remaining = duration;
+      const countdown = setInterval(() => {
+        remaining--;
+        adResult.textContent = `広告 ${remaining}秒...`;
+        if (remaining <= 0) clearInterval(countdown);
+      }, 1000);
+
+      // 5. 広告終了 → 元の動画に戻す
+      setTimeout(() => {
+        clearInterval(countdown);
+        adVideo.pause();
+        adVideo.remove();
+        mainVideo.style.display = '';
+        mainVideo.play().catch(() => {});
+
+        adBtn.disabled = false;
+        adResult.style.color = '#0f0';
+        adResult.textContent = '広告終了 → 弾幕が再開されていれば OK';
+        setTimeout(() => { adResult.style.display = 'none'; }, 5000);
+      }, duration * 1000);
+    }
+
+    // --- 弾幕レンダラー状態モニタリング (Canvas ベース) ---
+    // Canvas レンダラーの状態を DOM 経由で推測して表示する
+    // 詳細な内部状態は左上の DEBUG オーバーレイ (debug-overlay.ts) を参照
+    setInterval(() => {
+      const stateEl = document.getElementById('danmakuState');
+      if (!stateEl) return;
+
+      const overlay = document.getElementById('nfjk-danmaku-overlay');
+      const overlayConnected = overlay ? document.body.contains(overlay) : false;
+      const overlayWidth = overlay ? overlay.offsetWidth : 0;
+      const overlayHeight = overlay ? overlay.offsetHeight : 0;
+      const canvas = overlay ? overlay.querySelector('canvas') : null;
+      const canvasW = canvas ? canvas.width : 0;
+      const canvasH = canvas ? canvas.height : 0;
+      const videoEl = document.querySelector('video:not([style*="display: none"])');
+      const videoPaused = videoEl ? videoEl.paused : true;
+
+      stateEl.textContent =
+        `overlay:  ${overlay ? 'EXISTS' : 'MISSING'} ${overlayConnected ? '(connected)' : '(DETACHED)'}\n` +
+        `size:     ${overlayWidth}x${overlayHeight}\n` +
+        `canvas:   ${canvas ? `${canvasW}x${canvasH} (dpr ${(canvasW / (overlayWidth || 1)).toFixed(1)}x)` : 'MISSING'}\n` +
+        `video:    ${videoEl ? videoEl.tagName + '#' + (videoEl.id || 'no-id') : 'NOT FOUND'} (${videoPaused ? 'paused' : 'playing'})`;
+
+      // 異常検出
+      if (!overlayConnected && overlay) {
+        stateEl.style.color = '#f55';
+        stateEl.textContent += '\n⚠ BUG: overlay detached from DOM!';
+      } else if (overlay && !canvas) {
+        stateEl.style.color = '#f55';
+        stateEl.textContent += '\n⚠ BUG: overlay exists but no canvas!';
+      } else {
+        stateEl.style.color = '#0f0';
+      }
+    }, 500);
 
     // --- パネル折りたたみ ---
     function togglePanel() {

@@ -6,8 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build && node scripts/build-content.mjs",
-    "build:mock": "tsc && vite build --mode mock && node scripts/build-content.mjs --mock",
+    "build": "tsc && vite build && node scripts/build-content.mjs && node scripts/patch-mock-manifest.mjs && node scripts/verify-build.mjs",
+    "build:mock": "tsc && vite build --mode mock && node scripts/build-content.mjs --mock && node scripts/patch-mock-manifest.mjs && node scripts/verify-build.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -17,6 +17,7 @@
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.30",
+    "@fontsource-variable/noto-sans-jp": "^5.2.10",
     "@types/chrome": "^0.0.304",
     "@types/uuid": "^10.0.0",
     "typescript": "^5.7.3",

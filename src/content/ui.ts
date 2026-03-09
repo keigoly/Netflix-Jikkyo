@@ -196,6 +196,11 @@ export class CommentUI {
     this.input.value = '';
   }
 
+  /** 管理者モードのプレースホルダーを設定する */
+  setAdminMode(isAdmin: boolean): void {
+    this.input.placeholder = t(isAdmin ? 'cs_input_placeholder_admin' : 'cs_input_placeholder');
+  }
+
   /** ピア数を更新する */
   updatePeerCount(count: number): void {
     this.peerCountEl.textContent = t('stat_peers', { count });

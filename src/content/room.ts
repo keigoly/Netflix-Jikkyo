@@ -20,12 +20,21 @@ import {
 
 const APP_ID = 'netflix-jikkyo';
 
+/** ゴシップ間隔 (ms) */
+const GOSSIP_INTERVAL_MS = 5000;
+/** ゴシップ未更新のピアを除外するまでの猶予 (ms) */
+const GOSSIP_STALE_MS = 20000;
+/** join/leave 後のゴシップ即時発火までの debounce (ms) */
+const GOSSIP_DEBOUNCE_MS = 500;
+
 export interface RoomCallbacks {
   onComment: (comment: ValidatedComment, peerId: string) => void;
   onPeerJoin: (peerId: string) => void;
   onPeerLeave: (peerId: string) => void;
   onLogRequest?: (request: P2PLogRequest, peerId: string) => void;
   onLogResponse?: (response: P2PLogResponse, peerId: string) => void;
+  /** ゴシップで算出したグローバルピア数が変化した時に発火 */
+  onPeerCountUpdate?: (count: number) => void;
 }
 
 export class P2PRoom {
@@ -33,6 +42,7 @@ export class P2PRoom {
   private sendComment: ((data: P2PCommentMessage, targetPeers?: string[]) => void) | null = null;
   private sendLogRequest: ((data: P2PLogRequest, targetPeers?: string[]) => void) | null = null;
   private sendLogResponse: ((data: P2PLogResponse, targetPeers?: string[]) => void) | null = null;
+  private sendPeerList: ((data: string[], targetPeers?: string[]) => void) | null = null;
   private titleId: string;
   private callbacks: RoomCallbacks;
   private peers = new Set<string>();
@@ -41,6 +51,12 @@ export class P2PRoom {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private commentLimiter = new PeerRateLimiter(RATE_LIMIT_MAX_MESSAGES, RATE_LIMIT_WINDOW_MS);
   private logSyncLimiter = new PeerRateLimiter(LOG_SYNC_RATE_LIMIT_MAX, LOG_SYNC_RATE_LIMIT_WINDOW_MS);
+
+  /** 全既知ピア (直接接続 + ゴシップで学習) — peerId → lastSeen timestamp */
+  private allKnownPeers = new Map<string, number>();
+  private gossipTimer: ReturnType<typeof setInterval> | null = null;
+  private gossipDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastEmittedCount = 0;
 
   constructor(titleId: string, callbacks: RoomCallbacks) {
     this.titleId = titleId;
@@ -102,24 +118,105 @@ export class P2PRoom {
         this.callbacks.onLogResponse?.(validated, peerId);
       });
 
+      // --- ゴシッププロトコル: 全ピアの既知リストを交換 ---
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const [sendPL, receivePL] = this.room.makeAction<any>('peer-list');
+      this.sendPeerList = sendPL as (data: string[], targetPeers?: string[]) => void;
+
+      receivePL((data: unknown, peerId: string) => {
+        if (!Array.isArray(data)) return;
+        const now = Date.now();
+        // 送信者は確実に存在する
+        this.allKnownPeers.set(peerId, now);
+        // 受信したリストをマージ (間接的に学習)
+        for (const id of data) {
+          if (typeof id === 'string' && id.length > 0 && id.length < 100) {
+            this.allKnownPeers.set(id, now);
+          }
+        }
+        this.emitCountIfChanged();
+      });
+
       this.room.onPeerJoin((peerId) => {
         this.peers.add(peerId);
+        this.allKnownPeers.set(peerId, Date.now());
         this.callbacks.onPeerJoin(peerId);
+        this.scheduleImmediateGossip();
       });
 
       this.room.onPeerLeave((peerId) => {
         this.peers.delete(peerId);
+        this.allKnownPeers.delete(peerId);
         this.syncedPeers.delete(peerId);
         this.commentLimiter.removePeer(peerId);
         this.logSyncLimiter.removePeer(peerId);
         this.callbacks.onPeerLeave(peerId);
+        this.scheduleImmediateGossip();
       });
+
+      // 定期ゴシップ開始
+      this.gossipTimer = setInterval(() => this.gossipRound(), GOSSIP_INTERVAL_MS);
 
       log(`P2P room joined: nfjk-${this.titleId}`);
     } catch (err) {
       console.error('[Netflix Jikkyo] Failed to join P2P room:', err);
       this.scheduleReconnect();
     }
+  }
+
+  // --- ゴシッププロトコル ---
+
+  /** 定期ゴシップ: stale ピアの除外 → 既知リストを全直接ピアに送信 */
+  private gossipRound(): void {
+    if (!this.sendPeerList || this.peers.size === 0) return;
+
+    const now = Date.now();
+
+    // 直接接続中のピアは常に fresh
+    for (const id of this.peers) {
+      this.allKnownPeers.set(id, now);
+    }
+
+    // stale ピアを除外 (直接接続中のものは除く)
+    for (const [id, lastSeen] of this.allKnownPeers) {
+      if (now - lastSeen > GOSSIP_STALE_MS && !this.peers.has(id)) {
+        this.allKnownPeers.delete(id);
+      }
+    }
+
+    // 全既知ピアのリストを送信
+    this.sendPeerList([...this.allKnownPeers.keys()]);
+    this.emitCountIfChanged();
+  }
+
+  /** join/leave 直後の即時ゴシップ (debounce 付き) */
+  private scheduleImmediateGossip(): void {
+    if (this.gossipDebounceTimer) return;
+    this.gossipDebounceTimer = setTimeout(() => {
+      this.gossipDebounceTimer = null;
+      this.gossipRound();
+    }, GOSSIP_DEBOUNCE_MS);
+  }
+
+  /** グローバルカウントが変化した場合のみコールバックを発火 */
+  private emitCountIfChanged(): void {
+    const count = this.getGlobalPeerCount();
+    if (count !== this.lastEmittedCount) {
+      this.lastEmittedCount = count;
+      this.callbacks.onPeerCountUpdate?.(count);
+    }
+  }
+
+  /**
+   * ゴシップで算出したグローバルピア数を返す (自分を含む)。
+   *
+   * - allKnownPeers にはゴシップ収束後に自分の ID も含まれる
+   *   (他ピアの直接接続リストに自分が載るため)
+   * - 収束前は allKnownPeers に自分が含まれないため、
+   *   max(allKnownPeers.size, directPeers.size + 1) で自分を補正
+   */
+  getGlobalPeerCount(): number {
+    return Math.max(this.allKnownPeers.size, this.peers.size + 1);
   }
 
   /** コメントを全ピアに送信する */
@@ -146,7 +243,7 @@ export class P2PRoom {
     }
   }
 
-  /** 現在のピア数を返す */
+  /** 直接接続のピア数を返す (後方互換) */
   getPeerCount(): number {
     return this.peers.size;
   }
@@ -163,6 +260,14 @@ export class P2PRoom {
 
   /** ルームから離脱する */
   leave(): void {
+    if (this.gossipTimer) {
+      clearInterval(this.gossipTimer);
+      this.gossipTimer = null;
+    }
+    if (this.gossipDebounceTimer) {
+      clearTimeout(this.gossipDebounceTimer);
+      this.gossipDebounceTimer = null;
+    }
     if (this.room) {
       this.room.leave();
       this.room = null;
@@ -170,8 +275,11 @@ export class P2PRoom {
     this.sendComment = null;
     this.sendLogRequest = null;
     this.sendLogResponse = null;
+    this.sendPeerList = null;
     this.peers.clear();
     this.syncedPeers.clear();
+    this.allKnownPeers.clear();
+    this.lastEmittedCount = 0;
   }
 
   /** 完全破棄 */

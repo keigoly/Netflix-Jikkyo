@@ -169,6 +169,7 @@ const zhTW: TranslationKeys = {
 
   // --- 留言輸入 ---
   input_placeholder: '輸入留言…（最多 45 字）',
+  input_placeholder_admin: '管理員留言（最多 45 字）',
   input_send_title: '送出',
   input_ng_blocked: '此留言無法送出',
 
@@ -213,6 +214,7 @@ const zhTW: TranslationKeys = {
 
   // --- 內容腳本 UI ---
   cs_input_placeholder: '輸入留言…',
+  cs_input_placeholder_admin: '管理員留言',
   cs_send: '送出',
   cs_danmaku_toggle: '彈幕 ON/OFF',
   cs_danmaku_label: '彈',

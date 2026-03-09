@@ -7,6 +7,7 @@ import { log, warn } from '../utils/logger';
 import { CONTENT_TAB_PATTERNS } from '../utils/url-patterns';
 import { NicoBridge } from './nico-bridge';
 import { startNicoOAuth, loadNicoToken, clearNicoToken, type NicoOAuthConfig } from './nico-auth';
+import { loadAuthState } from '../utils/auth';
 
 // アイコンクリックでサイドパネルを開く
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
@@ -22,7 +23,8 @@ if (!uiLang.startsWith('ja')) {
   });
 }
 
-const CONFIG_URL = 'https://netflix-jikkyo-config.skeigoly.workers.dev/config';
+const WORKER_BASE = 'https://netflix-jikkyo-config.skeigoly.workers.dev';
+const CONFIG_URL = `${WORKER_BASE}/config`;
 const FLAGS_ALARM_NAME = 'fetch-feature-flags';
 const FLAGS_CACHE_KEY = 'featureFlags';
 
@@ -70,6 +72,32 @@ async function getCachedFlags(): Promise<FeatureFlags> {
 fetchFeatureFlags();
 chrome.alarms.create(FLAGS_ALARM_NAME, { periodInMinutes: 5 });
 
+// SW起動時に既存 Netflix タブへ Content Script を再注入
+// (拡張機能リロードで既存タブの Content Script コンテキストが無効化されるため)
+async function reinjectContentScripts(): Promise<void> {
+  const tabs = await chrome.tabs.query({ url: CONTENT_TAB_PATTERNS });
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      const pong = await chrome.tabs.sendMessage(tab.id, { type: 'ping' }).catch(() => null);
+      if (pong === 'pong') continue;
+      await chrome.scripting.insertCSS({
+        target: { tabId: tab.id },
+        files: ['content-bundle.css'],
+      }).catch(() => {});
+      await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        files: ['content-bundle.js'],
+        world: 'ISOLATED' as chrome.scripting.ExecutionWorld,
+      });
+      log(`[Netflix Jikkyo] Re-injected content script into tab ${tab.id}`);
+    } catch (e) {
+      warn(`[Netflix Jikkyo] Re-injection failed for tab ${tab.id}:`, e);
+    }
+  }
+}
+reinjectContentScripts();
+
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === FLAGS_ALARM_NAME) {
     fetchFeatureFlags();
@@ -79,7 +107,20 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 // --- ニコ生ブリッジ管理 ---
 let nicoBridge: NicoBridge | null = null;
 let lastNicoBridgeState: NicoBridgeStateMessage | null = null;
+let lastPeerCount = 0;
 let cachedNicoOAuthConfig: NicoOAuthConfig | null = null;
+
+/** 現在ログイン中の Google アカウント ID を取得 */
+async function getCurrentGoogleId(): Promise<string | null> {
+  const authState = await loadAuthState();
+  if (!authState.isAuthenticated) return null;
+  return authState.user?.googleId ?? null;
+}
+
+/** Google アカウント別のニコ生切断フラグキー */
+function nicoDisconnectedKey(googleId: string): string {
+  return `nicoUserDisconnected_${googleId}`;
+}
 
 function sendToNetflixTabs(message: NicoBridgeCommentMessage | NicoBridgeStateMessage): void {
   chrome.tabs.query({ url: CONTENT_TAB_PATTERNS }, (tabs) => {
@@ -97,10 +138,26 @@ async function startNicoBridge(lvId: string): Promise<void> {
     nicoBridge = null;
   }
 
-  // ユーザーが明示的に切断済みなら接続しない
-  const result = await chrome.storage.local.get('nicoUserDisconnected');
+  const googleId = await getCurrentGoogleId();
 
-  log(`[Netflix Jikkyo] Starting NicoBridge for ${lvId}`);
+  // ユーザーが明示的に切断済みなら接続しない (アカウント別フラグ)
+  let userDisconnected = false;
+  if (googleId) {
+    const key = nicoDisconnectedKey(googleId);
+    const result = await chrome.storage.local.get(key);
+    userDisconnected = !!result[key];
+    // v1.0.5→v1.0.6 マイグレーション: 旧グローバルキーからの移行
+    if (!userDisconnected) {
+      const legacy = await chrome.storage.local.get('nicoUserDisconnected');
+      if (legacy.nicoUserDisconnected) {
+        userDisconnected = true;
+        await chrome.storage.local.set({ [key]: true });
+        await chrome.storage.local.remove('nicoUserDisconnected');
+      }
+    }
+  }
+
+  log(`[Netflix Jikkyo] Starting NicoBridge for ${lvId} (googleId=${googleId ?? 'none'})`);
 
   nicoBridge = new NicoBridge(
     lvId,
@@ -117,14 +174,14 @@ async function startNicoBridge(lvId: string): Promise<void> {
     },
   );
 
-  if (result.nicoUserDisconnected) {
+  if (userDisconnected) {
     log('[Netflix Jikkyo] NicoBridge created but not connecting (user disconnected)');
     nicoBridge.setUserDisconnected(true);
     return;
   }
 
-  // 保存済み OAuth トークンがあれば適用
-  const token = await loadNicoToken(cachedNicoOAuthConfig ?? undefined).catch(() => null);
+  // 保存済み OAuth トークンがあれば適用 (アカウント別)
+  const token = await loadNicoToken(cachedNicoOAuthConfig ?? undefined, googleId ?? undefined).catch(() => null);
   if (token) {
     nicoBridge.setOAuthToken(token);
   }
@@ -318,9 +375,51 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     })();
     return true; // 非同期レスポンス
   }
+  // アーカイブコメント取得 (CF Worker プロキシ経由)
+  if (message.type === 'fetch-archive-comments') {
+    const { titleId, from, to } = message as { titleId: string; from: number; to: number };
+    (async () => {
+      try {
+        const url = `${WORKER_BASE}/archive-comments?id=${encodeURIComponent(titleId)}&from=${from}&to=${to}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+          sendResponse({ comments: [], error: `HTTP ${res.status}` });
+          return;
+        }
+        const data = await res.json();
+        sendResponse(data);
+      } catch (e) {
+        sendResponse({ comments: [], error: String(e) });
+      }
+    })();
+    return true; // 非同期レスポンス
+  }
+  // 管理者向けピアカウント統計 (サイドパネル → コンテンツスクリプトに中継)
+  if (message.type === 'get-peer-stats') {
+    (async () => {
+      try {
+        const tabs = await chrome.tabs.query({ url: CONTENT_TAB_PATTERNS });
+        const activeTab = tabs.find(t => t.active) ?? tabs[0];
+        if (activeTab?.id) {
+          const stats = await chrome.tabs.sendMessage(activeTab.id, { type: 'get-peer-stats' });
+          sendResponse(stats);
+        } else {
+          sendResponse(null);
+        }
+      } catch {
+        sendResponse(null);
+      }
+    })();
+    return true;
+  }
   // ニコ生ブリッジ状態取得
   if (message.type === 'get-nico-bridge-state') {
     sendResponse(lastNicoBridgeState);
+    return;
+  }
+  // P2Pピア数取得 (サイドパネル起動時の即時表示用)
+  if (message.type === 'get-peer-count') {
+    sendResponse({ count: lastPeerCount });
     return;
   }
   // ニコ生ブリッジ投稿リクエスト
@@ -336,111 +435,151 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     sendResponse({ ok: false });
     return;
   }
+  // Google アカウント切り替え通知 → ニコ生ブリッジを再評価
+  if (message.type === 'google-account-changed') {
+    (async () => {
+      // 現在のブリッジセッションをリセット
+      if (nicoBridge) {
+        nicoBridge.setOAuthToken(null);
+        nicoBridge.disconnect('account-changed');
+      }
+      broadcastNicoBridgeSession(false);
+
+      // 新ユーザーの状態でブリッジを再起動
+      const googleId = await getCurrentGoogleId();
+      if (googleId) {
+        const flags = await getCachedFlags();
+        if (flags.nicoBridge?.enabled && flags.nicoBridge?.lvId) {
+          await startNicoBridge(flags.nicoBridge.lvId);
+        }
+      }
+      sendResponse({ ok: true });
+    })();
+    return true;
+  }
   // ニコニコ連携開始 (OAuth or Cookie フォールバック)
   if (message.type === 'nico-oauth-start') {
-    // 連携開始 → disconnect フラグをクリア
-    chrome.storage.local.remove('nicoUserDisconnected');
-    if (nicoBridge) {
-      nicoBridge.setUserDisconnected(false);
-    }
+    (async () => {
+      const googleId = await getCurrentGoogleId();
+      if (!googleId) {
+        sendResponse({ ok: false, error: 'Not authenticated' });
+        return;
+      }
 
-    if (cachedNicoOAuthConfig) {
-      // OAuth フロー
-      startNicoOAuth(cachedNicoOAuthConfig).then(async (token) => {
-        if (nicoBridge) {
-          nicoBridge.setOAuthToken(token);
-          broadcastNicoBridgeSession(true);
-          nicoBridge.connect();
-        }
-        sendResponse({ ok: true, method: 'oauth' });
-      }).catch((e) => {
-        warn('[Netflix Jikkyo] Nico OAuth failed:', e);
-        sendResponse({ ok: false, error: String(e) });
-      });
-    } else {
-      // OAuth未設定 → Cookie ベースフォールバック
-      // まず既存の Cookie をチェック
-      chrome.cookies.get({ url: 'https://nicovideo.jp', name: 'user_session' }).then((cookie) => {
-        if (cookie?.value) {
-          // 既にログイン済み → ログインページを開かず即座に成功
-          log('[Netflix Jikkyo] Nico cookie already exists, skipping login page');
+      // 連携開始 → disconnect フラグをクリア (アカウント別)
+      chrome.storage.local.remove(nicoDisconnectedKey(googleId));
+      if (nicoBridge) {
+        nicoBridge.setUserDisconnected(false);
+      }
+
+      if (cachedNicoOAuthConfig) {
+        // OAuth フロー
+        try {
+          const token = await startNicoOAuth(cachedNicoOAuthConfig, googleId);
           if (nicoBridge) {
+            nicoBridge.setOAuthToken(token);
             broadcastNicoBridgeSession(true);
             nicoBridge.connect();
           }
-          sendResponse({ ok: true, method: 'cookie' });
-        } else {
-          // Cookie なし → ログインウィンドウを開いて待機
+          sendResponse({ ok: true, method: 'oauth' });
+        } catch (e) {
+          warn('[Netflix Jikkyo] Nico OAuth failed:', e);
+          sendResponse({ ok: false, error: String(e) });
+        }
+      } else {
+        // OAuth未設定 → Cookie ベースフォールバック
+        try {
+          const cookie = await chrome.cookies.get({ url: 'https://nicovideo.jp', name: 'user_session' });
+          if (cookie?.value) {
+            log('[Netflix Jikkyo] Nico cookie already exists, skipping login page');
+            if (nicoBridge) {
+              broadcastNicoBridgeSession(true);
+              nicoBridge.connect();
+            }
+            sendResponse({ ok: true, method: 'cookie' });
+          } else {
+            chrome.windows.create({
+              url: 'https://account.nicovideo.jp/login?site=nicolive&next_url=https%3A%2F%2Flive.nicovideo.jp%2F',
+              type: 'popup',
+              width: 500,
+              height: 700,
+            });
+            const found = await waitForNicoCookie();
+            if (found && nicoBridge) {
+              broadcastNicoBridgeSession(true);
+              nicoBridge.connect();
+            }
+            sendResponse({ ok: found, method: 'cookie' });
+          }
+        } catch {
           chrome.windows.create({
             url: 'https://account.nicovideo.jp/login?site=nicolive&next_url=https%3A%2F%2Flive.nicovideo.jp%2F',
             type: 'popup',
             width: 500,
             height: 700,
           });
-          waitForNicoCookie().then((found) => {
-            if (found && nicoBridge) {
-              broadcastNicoBridgeSession(true);
-              nicoBridge.connect();
-            }
-            sendResponse({ ok: found, method: 'cookie' });
-          });
-        }
-      }).catch(() => {
-        // Cookie API エラー → フォールバックでログインウィンドウを開く
-        chrome.windows.create({
-          url: 'https://account.nicovideo.jp/login?site=nicolive&next_url=https%3A%2F%2Flive.nicovideo.jp%2F',
-          type: 'popup',
-          width: 500,
-          height: 700,
-        });
-        waitForNicoCookie().then((found) => {
+          const found = await waitForNicoCookie();
           if (found && nicoBridge) {
             broadcastNicoBridgeSession(true);
             nicoBridge.connect();
           }
           sendResponse({ ok: found, method: 'cookie' });
-        });
-      });
-    }
+        }
+      }
+    })();
     return true; // 非同期レスポンス
   }
   // ニコニコ連携解除
   if (message.type === 'nico-oauth-disconnect') {
-    // disconnect フラグを保存 (Cookie ベースでの自動再連携を防止)
-    chrome.storage.local.set({ nicoUserDisconnected: true });
-    if (nicoBridge) {
-      nicoBridge.setUserDisconnected(true);
-      nicoBridge.disconnect('user-disconnect');
-    }
+    (async () => {
+      const googleId = await getCurrentGoogleId();
 
-    // Cookie を削除 (再連携時にログインを要求)
-    chrome.cookies.remove({
-      url: 'https://nicovideo.jp',
-      name: 'user_session',
-    }).catch(() => {});
-
-    clearNicoToken().then(() => {
-      if (nicoBridge) {
-        nicoBridge.setOAuthToken(null);
+      // disconnect フラグを保存 (アカウント別)
+      if (googleId) {
+        chrome.storage.local.set({ [nicoDisconnectedKey(googleId)]: true });
       }
-      broadcastNicoBridgeSession(false);
-      sendResponse({ ok: true });
-    }).catch(() => {
-      sendResponse({ ok: false });
-    });
+      if (nicoBridge) {
+        nicoBridge.setUserDisconnected(true);
+        nicoBridge.disconnect('user-disconnect');
+      }
+
+      // Cookie を削除 (再連携時にログインを要求)
+      chrome.cookies.remove({
+        url: 'https://nicovideo.jp',
+        name: 'user_session',
+      }).catch(() => {});
+
+      try {
+        await clearNicoToken(googleId ?? undefined);
+        if (nicoBridge) {
+          nicoBridge.setOAuthToken(null);
+        }
+        broadcastNicoBridgeSession(false);
+        sendResponse({ ok: true });
+      } catch {
+        sendResponse({ ok: false });
+      }
+    })();
     return true;
   }
   // ニコニコ連携状態確認
   if (message.type === 'nico-oauth-status') {
-    // ユーザーが明示的に切断した場合は linked: false
-    chrome.storage.local.get('nicoUserDisconnected').then(async (result) => {
-      if (result.nicoUserDisconnected) {
+    (async () => {
+      const googleId = await getCurrentGoogleId();
+      if (!googleId) {
+        sendResponse({ linked: false });
+        return;
+      }
+
+      // ユーザーが明示的に切断した場合は linked: false (アカウント別)
+      const result = await chrome.storage.local.get(nicoDisconnectedKey(googleId));
+      if (result[nicoDisconnectedKey(googleId)]) {
         sendResponse({ linked: false });
         return;
       }
       // OAuth トークン or Cookie で判定
       try {
-        const token = await loadNicoToken(cachedNicoOAuthConfig ?? undefined).catch(() => null);
+        const token = await loadNicoToken(cachedNicoOAuthConfig ?? undefined, googleId).catch(() => null);
         if (token) {
           sendResponse({ linked: true });
           return;
@@ -451,9 +590,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       } catch {
         sendResponse({ linked: false });
       }
-    }).catch(() => {
-      sendResponse({ linked: false });
-    });
+    })();
     return true;
   }
 });
@@ -469,6 +606,7 @@ chrome.runtime.onMessage.addListener((message, sender) => {
   if (message.type === 'peer-count') {
     const count = message.count as number;
     const tabId = sender.tab.id;
+    lastPeerCount = count;
 
     // バッジテキスト更新
     if (tabId !== undefined) {

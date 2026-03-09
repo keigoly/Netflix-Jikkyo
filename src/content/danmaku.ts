@@ -8,278 +8,358 @@ interface DanmakuOptions {
   settings: Settings;
 }
 
-type TunnelMap = { [key: string]: HTMLElement[] };
+/** 同時に画面上に存在できる弾幕の上限 (適応的に変動) */
+const DEFAULT_MAX_ACTIVE = 150;
+const MIN_MAX_ACTIVE = 40;
+const ABSOLUTE_MAX_ACTIVE = 250;
 
-/** 同時に画面上に存在できる弾幕要素の上限 (パフォーマンス保護) */
-const MAX_ACTIVE_DANMAKU = 80;
-
+/** Canvas ベース弾幕レンダラー
+ * Worker + OffscreenCanvas が利用可能な環境ではレンダリングを別スレッドで実行し
+ * メインスレッドの負荷をゼロにする。利用できない場合はメインスレッドにフォールバック。 */
 export class DanmakuRenderer {
   private container: HTMLElement;
+  private canvas: HTMLCanvasElement;
+  private ctx!: CanvasRenderingContext2D;
   private settings: Settings;
-  private danTunnel: TunnelMap;
-  private danFontSize = 24;
-  private context: CanvasRenderingContext2D | null = null;
+
+  // --- Worker モード ---
+  private worker: Worker | null = null;
+  private workerMode = false;
+  private shadowActiveCount = 0;
+  private shadowPaused = false;
+  private shadowShowing = true;
+
+  // --- メインスレッドモード (フォールバック) ---
   private showing = true;
   private paused = false;
-  private activeCount = 0;
+  private items: ActiveComment[] = [];
+  private adminItems: ActiveAdmin[] = [];
+  private tunnelInfo: { entryTime: number; width: number; speed: number }[] = [];
+  private animFrameId = 0;
+  private lastRenderTime = 0;
+  private dpr = 1;
+  private canvasW = 0;
+  private canvasH = 0;
+  private maxActive = DEFAULT_MAX_ACTIVE;
+  private frameCount = 0;
+  private lastFpsCheck = 0;
+  private currentFps = 60;
+  private measureCanvas: CanvasRenderingContext2D | null = null;
+  private measureFontSize = 0;
+
+  // フルスクリーン監視 (Worker モードのみ)
+  private boundFullscreenChange: (() => void) | null = null;
 
   constructor(options: DanmakuOptions) {
     this.container = options.container;
     this.settings = options.settings;
-    this.danTunnel = {};
-    // Canvas コンテキスト初期化
-    this._measure('', 0);
+
+    // Canvas 生成
+    this.canvas = document.createElement('canvas');
+    this.canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+    this.container.appendChild(this.canvas);
+
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+
+    // Worker + OffscreenCanvas を試行
+    if (!this.tryInitWorker()) {
+      // フォールバック: メインスレッドレンダリング
+      this.ctx = this.canvas.getContext('2d')!;
+      this.resizeCanvas();
+    }
   }
+
+  /** Worker + OffscreenCanvas の初期化を試みる
+   *  ※ Netflix コンテンツスクリプト環境では CSP が chrome-extension:// の
+   *    Worker スクリプト読み込みをブロックするため、常に false を返す。
+   *    new Worker(url) は同期的に throw しないため、canvas.transferControlToOffscreen()
+   *    後に非同期エラーとなり InvalidStateError を引き起こしていた。 */
+  private tryInitWorker(): boolean {
+    // Netflix の CSP が Worker スクリプトをブロックするためメインスレッドのみ使用
+    return false;
+
+    /* --- 以下は将来 CSP 問題が解決した場合の参考コード ---
+    try {
+      if (!this.canvas.transferControlToOffscreen) return false;
+      if (typeof chrome === 'undefined' || !chrome.runtime?.getURL) return false;
+
+      const workerUrl = chrome.runtime.getURL('danmaku-worker.js');
+      const worker = new Worker(workerUrl);
+
+      const offscreen = this.canvas.transferControlToOffscreen();
+      this.worker = worker;
+
+      this.worker.onmessage = (e: MessageEvent) => {
+        if (e.data.type === 'activeCount') {
+          this.shadowActiveCount = e.data.count;
+        }
+      };
+
+      this.worker.onerror = () => {
+        console.warn('[DanmakuRenderer] Worker error, falling back to main thread');
+        this.worker?.terminate();
+        this.worker = null;
+        this.workerMode = false;
+        this.cleanupFullscreenListener();
+        // Canvas が transfer 済みなので再生成
+        this.recreateCanvas();
+      };
+
+      const w = this.container.offsetWidth;
+      const h = this.container.offsetHeight;
+
+      this.worker.postMessage({
+        type: 'init',
+        canvas: offscreen,
+        settings: this.extractWorkerSettings(),
+        width: w,
+        height: h,
+        dpr: this.dpr,
+        isFullscreen: !!document.fullscreenElement,
+      }, [offscreen]);
+
+      this.workerMode = true;
+      this.canvasW = w;
+      this.canvasH = h;
+
+      // Worker にフルスクリーン状態を通知
+      this.boundFullscreenChange = () => {
+        if (this.workerMode && this.worker) {
+          this.worker.postMessage({ type: 'fullscreen', isFullscreen: !!document.fullscreenElement });
+        }
+      };
+      document.addEventListener('fullscreenchange', this.boundFullscreenChange);
+
+      return true;
+    } catch {
+      return false;
+    }
+    */
+  }
+
+  /** Canvas を再生成 (Worker 失敗時のフォールバック用) */
+  private recreateCanvas(): void {
+    this.canvas.remove();
+    this.canvas = document.createElement('canvas');
+    this.canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+    this.container.appendChild(this.canvas);
+    this.ctx = this.canvas.getContext('2d')!;
+    this.resizeCanvas();
+  }
+
+  /** Worker に送る設定サブセットを抽出 */
+  private extractWorkerSettings(): object {
+    return {
+      danmakuEnabled: this.settings.danmakuEnabled,
+      danmakuOpacity: this.settings.danmakuOpacity,
+      danmakuScale: this.settings.danmakuScale,
+      danmakuSpeedRate: this.settings.danmakuSpeedRate,
+      danmakuFontFamily: this.settings.danmakuFontFamily,
+      danmakuUnlimited: this.settings.danmakuUnlimited,
+    };
+  }
+
+  /** フルスクリーンリスナーのクリーンアップ */
+  private cleanupFullscreenListener(): void {
+    if (this.boundFullscreenChange) {
+      document.removeEventListener('fullscreenchange', this.boundFullscreenChange);
+      this.boundFullscreenChange = null;
+    }
+  }
+
+  // ========== パブリック API ==========
 
   /** 設定を更新する */
   updateSettings(settings: Settings): void {
     this.settings = settings;
-    this.container.style.setProperty('--nfjk-danmaku-opacity', `${settings.danmakuOpacity}`);
-    this.container.style.setProperty('--nfjk-danmaku-font-family', settings.danmakuFontFamily);
-    // フォント変更時にCanvas計測コンテキストをリセット
-    this.context = null;
+    if (this.workerMode && this.worker) {
+      this.worker.postMessage({ type: 'settings', settings: this.extractWorkerSettings() });
+    } else {
+      this.measureCanvas = null;
+    }
   }
 
   /** 一時停止中かどうか */
   isPaused(): boolean {
-    return this.paused;
+    return this.workerMode ? this.shadowPaused : this.paused;
+  }
+
+  /** アクティブな弾幕数 */
+  getActiveCount(): number {
+    return this.workerMode ? this.shadowActiveCount : (this.items.length + this.adminItems.length);
   }
 
   /** 動画一時停止に連動: アニメーションを凍結する */
   pause(): void {
-    this.paused = true;
-    this.container.classList.add('nfjk-paused');
+    if (this.workerMode && this.worker) {
+      this.shadowPaused = true;
+      this.worker.postMessage({ type: 'pause' });
+    } else {
+      this.paused = true;
+      if (this.animFrameId) {
+        cancelAnimationFrame(this.animFrameId);
+        this.animFrameId = 0;
+      }
+    }
   }
 
   /** 動画再生に連動: アニメーションを再開する */
   resume(): void {
-    this.paused = false;
-    this.container.classList.remove('nfjk-paused');
+    if (this.workerMode && this.worker) {
+      this.shadowPaused = false;
+      this.worker.postMessage({ type: 'resume' });
+    } else {
+      this.paused = false;
+      if ((this.items.length > 0 || this.adminItems.length > 0) && !this.animFrameId) {
+        this.lastRenderTime = performance.now();
+        this.animFrameId = requestAnimationFrame((t) => this.render(t));
+      }
+    }
   }
 
-  /** 弾幕を描画できる状態かどうか (容量チェック) */
+  /** 弾幕を描画できる状態かどうか (容量 + コンテナ健全性チェック) */
   canDraw(): boolean {
-    return this.showing && this.settings.danmakuEnabled && this.activeCount < MAX_ACTIVE_DANMAKU;
+    if (this.workerMode) {
+      return this.shadowShowing && this.settings.danmakuEnabled
+        && this.shadowActiveCount < this.maxActive && this.isContainerHealthy();
+    }
+    return this.showing && this.settings.danmakuEnabled
+      && this.items.length < this.maxActive && this.isContainerHealthy();
+  }
+
+  /** コンテナが描画可能な状態かどうか (DOM接続 + 有効サイズ) */
+  isContainerHealthy(): boolean {
+    return this.container.isConnected && this.container.offsetWidth > 0;
   }
 
   /** 弾幕を描画する */
   draw(dan: DanmakuItem | DanmakuItem[]): void {
-    if (!this.showing || !this.settings.danmakuEnabled) return;
+    if (this.workerMode && this.worker) {
+      if (!this.shadowShowing || !this.settings.danmakuEnabled) return;
+      if (!this.isContainerHealthy()) return;
 
-    const danList = Array.isArray(dan) ? dan : [dan];
-
-    // 最終安全弁: テキスト長を制限
-    for (const item of danList) {
-      if (item.text.length > MAX_COMMENT_TEXT_LENGTH) {
-        item.text = item.text.slice(0, MAX_COMMENT_TEXT_LENGTH);
+      // Canvas サイズ変更検出
+      const cw = this.container.offsetWidth;
+      const ch = this.container.offsetHeight;
+      if (cw !== this.canvasW || ch !== this.canvasH) {
+        this.canvasW = cw;
+        this.canvasH = ch;
+        this.worker.postMessage({ type: 'resize', width: cw, height: ch, dpr: this.dpr });
       }
+
+      const items = Array.isArray(dan) ? dan : [dan];
+      this.worker.postMessage({ type: 'draw', items });
+      return;
     }
 
-    const ratio = this.container.offsetWidth / 1920;
-    const baseFontSize = DANMAKU_BASE_FONT_SIZE * (this.settings.danmakuScale / 100) * ratio;
-    const itemHeight = baseFontSize + (6 * ratio);
+    // --- メインスレッドレンダリング (フォールバック) ---
+    if (!this.showing || !this.settings.danmakuEnabled) return;
+    if (!this.isContainerHealthy()) return;
 
-    const danWidth = this.container.offsetWidth;
-    const danHeight = this.container.offsetHeight;
-    const itemY = danHeight / itemHeight;
+    if (this.container.offsetWidth !== this.canvasW || this.container.offsetHeight !== this.canvasH) {
+      this.resizeCanvas();
+    }
 
-    const danItemRight = (el: HTMLElement): number => {
-      const elWidth = el.offsetWidth || parseInt(el.style.width);
-      const elRight = el.getBoundingClientRect().right || this.container.getBoundingClientRect().right + elWidth;
-      return this.container.getBoundingClientRect().right - elRight;
-    };
-
-    const danSpeed = (width: number) => (danWidth + width) / 5;
-
-    // animationend の安全タイマー: animationend が発火しない場合のフォールバック (ms)
-    const animDurationStr = this._getAnimationDuration();
-    const animDurationMs = parseFloat(animDurationStr) * 1000 + 1000; // アニメーション尺 + 1秒マージン
-
-    const getTunnel = (el: HTMLElement, width: number): number => {
-      const tmp = danWidth / danSpeed(width);
-
-      for (let i = 0; this.settings.danmakuUnlimited || i < itemY; i++) {
-        const item = this.danTunnel[i + ''];
-        if (item && item.length) {
-          for (let j = 0; j < item.length; j++) {
-            const danRight = danItemRight(item[j]) - 10;
-            if (danRight <= danWidth - tmp * danSpeed(parseInt(item[j].style.width)) || danRight <= 0) {
-              break;
-            }
-            if (j === item.length - 1) {
-              this.danTunnel[i + ''].push(el);
-              let tunnelDone = false;
-              const tunnelCleanup = () => {
-                if (tunnelDone) return;
-                tunnelDone = true;
-                const arr = this.danTunnel[i + ''];
-                if (arr) {
-                  const idx = arr.indexOf(el);
-                  if (idx >= 0) arr.splice(idx, 1);
-                }
-              };
-              el.addEventListener('animationend', tunnelCleanup);
-              setTimeout(tunnelCleanup, animDurationMs);
-              return i % itemY;
-            }
-          }
-        } else {
-          this.danTunnel[i + ''] = [el];
-          let tunnelDone = false;
-          const tunnelCleanup = () => {
-            if (tunnelDone) return;
-            tunnelDone = true;
-            const arr = this.danTunnel[i + ''];
-            if (arr) {
-              const idx = arr.indexOf(el);
-              if (idx >= 0) arr.splice(idx, 1);
-            }
-          };
-          el.addEventListener('animationend', tunnelCleanup);
-          setTimeout(tunnelCleanup, animDurationMs);
-          return i % itemY;
-        }
-      }
-      return -1;
-    };
-
-    const docFragment = document.createDocumentFragment();
+    const danList = Array.isArray(dan) ? dan : [dan];
+    const cw = this.canvasW;
+    const fontSize = this.getFontSize();
+    const tunnelH = this.getTunnelHeight(fontSize);
+    const duration = this.getDurationMs();
 
     for (const item of danList) {
-      // 管理者コメント: 上部中央に固定表示
+      let text = item.text;
+      if (text.length > MAX_COMMENT_TEXT_LENGTH) {
+        text = text.slice(0, MAX_COMMENT_TEXT_LENGTH);
+      }
+
       if (item.admin) {
-        const el = document.createElement('div');
-        el.classList.add('nfjk-danmaku-admin');
-        el.textContent = item.text;
-        let done = false;
-        const cleanup = () => {
-          if (done) return;
-          done = true;
-          this.activeCount--;
-          el.remove();
-        };
-        el.addEventListener('animationend', cleanup);
-        setTimeout(cleanup, 6000); // 5s animation + 1s margin
-        el.classList.add('nfjk-danmaku-move');
-        el.style.animationDuration = '5s';
-        this.container.style.setProperty('--nfjk-danmaku-font-size', `${baseFontSize}px`);
-        docFragment.appendChild(el);
-        this.activeCount++;
+        this.adminItems.push({
+          text,
+          width: this.measureText(text, fontSize * 1.15),
+          fontSize: fontSize * 1.15,
+          startTime: performance.now(),
+          opacity: 0,
+        });
         continue;
       }
 
-      // テキスト幅を計測
-      const itemWidth = (() => {
-        let measure = 0;
-        for (const line of item.text.split('\n')) {
-          const result = this._measure(line, baseFontSize);
-          if (result > measure) measure = result;
-        }
-        return measure;
-      })();
+      if (!item.mine && this.items.length >= this.maxActive) continue;
 
-      const lines = item.text.split('\n');
+      const width = this.measureText(text, fontSize);
+      const speed = (cw + width) / duration;
 
-      for (const line of lines) {
-        // 画面上の弾幕数が上限を超えている場合はスキップ (自分のコメントは常に表示)
-        if (!item.mine && this.activeCount >= MAX_ACTIVE_DANMAKU) {
-          break;
-        }
+      const tunnel = this.findTunnel(width, speed, duration);
+      if (tunnel < 0 && !item.mine) continue;
+      const effectiveTunnel = tunnel >= 0 ? tunnel : 0;
 
-        const el = document.createElement('div');
-        el.classList.add('nfjk-danmaku-item', 'nfjk-danmaku-right');
-        if (item.mine) el.classList.add('nfjk-danmaku-mine');
-        el.style.color = COMMENT_COLOR;
-        el.textContent = line;
-
-        // animationend でDOM削除 + カウンター減算 (idempotent + fallback timeout)
-        let done = false;
-        const cleanup = () => {
-          if (done) return;
-          done = true;
-          this.activeCount--;
-          el.remove();
-        };
-        el.addEventListener('animationend', cleanup);
-        setTimeout(cleanup, animDurationMs);
-
-        // トンネル取得・配置
-        const tunnel = getTunnel(el, itemWidth);
-        if (tunnel >= 0) {
-          el.style.width = itemWidth + 1 + 'px';
-          el.style.top = itemHeight * tunnel + 8 + 'px';
-          el.style.transform = `translateX(-${danWidth}px)`;
-          el.style.willChange = 'transform';
-          el.classList.add('nfjk-danmaku-move');
-          el.style.animationDuration = animDurationStr;
-          docFragment.appendChild(el);
-          this.activeCount++;
-        }
-      }
-
-      // フォントサイズ CSS変数を更新
-      this.container.style.setProperty('--nfjk-danmaku-font-size', `${baseFontSize}px`);
+      this.items.push({
+        text,
+        x: cw,
+        y: tunnelH * effectiveTunnel + 8,
+        width,
+        speed,
+        fontSize,
+        mine: !!item.mine,
+        tunnel: effectiveTunnel,
+      });
     }
 
-    this.container.appendChild(docFragment);
+    this.startLoop();
   }
 
-  /** Canvas でテキスト幅を計測する */
-  private _measure(text: string, itemFontSize: number): number {
-    if (!this.context || this.danFontSize !== itemFontSize) {
-      this.danFontSize = itemFontSize;
-      this.context = document.createElement('canvas').getContext('2d');
-      const fontFamily = this.settings.danmakuFontFamily || "'Montserrat'";
-      this.context!.font = `bold ${this.danFontSize}px ${fontFamily}, "Segoe UI", Arial`;
+  /** Canvas サイズを再計算する */
+  resize(): void {
+    if (this.workerMode && this.worker) {
+      this.canvasW = this.container.offsetWidth;
+      this.canvasH = this.container.offsetHeight;
+      this.worker.postMessage({ type: 'resize', width: this.canvasW, height: this.canvasH, dpr: this.dpr });
+    } else {
+      this.resizeCanvas();
     }
-
-    const lines = text.split('\n');
-    let maxWidth = 0;
-    for (const line of lines) {
-      maxWidth = Math.max(maxWidth, this.context!.measureText(line).width);
-    }
-    return maxWidth;
-  }
-
-  /** アニメーション時間を算出する */
-  private _getAnimationDuration(): string {
-    const rate = this.settings.danmakuSpeedRate;
-    const isFullScreen = !!document.fullscreenElement;
-    return `${(isFullScreen ? 5.5 : 5) / rate}s`;
   }
 
   /** 弾幕コンテナをクリアする */
   clear(): void {
-    this.danTunnel = {};
-    this.activeCount = 0;
-    while (this.container.firstChild) {
-      this.container.removeChild(this.container.firstChild);
-    }
-  }
-
-  /** リサイズ時に既存の弾幕アニメーションを更新 */
-  resize(): void {
-    const danWidth = this.container.offsetWidth;
-    const items = this.container.querySelectorAll<HTMLElement>('.nfjk-danmaku-right');
-    for (const item of items) {
-      item.style.transform = `translateX(-${danWidth}px)`;
+    if (this.workerMode && this.worker) {
+      this.shadowActiveCount = 0;
+      this.worker.postMessage({ type: 'clear' });
+    } else {
+      this.items = [];
+      this.adminItems = [];
+      this.tunnelInfo = [];
+      if (this.animFrameId) {
+        cancelAnimationFrame(this.animFrameId);
+        this.animFrameId = 0;
+      }
+      this.ctx.clearRect(0, 0, this.canvasW, this.canvasH);
     }
   }
 
   /** 弾幕を非表示にする */
   hide(): void {
-    this.showing = false;
-    this.clear();
+    if (this.workerMode && this.worker) {
+      this.shadowShowing = false;
+      this.shadowActiveCount = 0;
+      this.worker.postMessage({ type: 'hide' });
+    } else {
+      this.showing = false;
+      this.clear();
+    }
   }
 
   /** 弾幕を表示する */
   show(): void {
-    this.showing = true;
+    if (this.workerMode && this.worker) {
+      this.shadowShowing = true;
+      this.worker.postMessage({ type: 'show' });
+    } else {
+      this.showing = true;
+    }
   }
 
   /** 弾幕の表示/非表示をトグルする */
   toggle(): void {
-    if (this.showing) {
+    if (this.workerMode ? this.shadowShowing : this.showing) {
       this.hide();
     } else {
       this.show();
@@ -288,7 +368,248 @@ export class DanmakuRenderer {
 
   /** 破棄 */
   destroy(): void {
-    this.clear();
-    this.context = null;
+    this.cleanupFullscreenListener();
+    if (this.workerMode && this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+      this.workerMode = false;
+    } else {
+      this.clear();
+    }
+    this.canvas.remove();
+    this.measureCanvas = null;
   }
+
+  // ========== メインスレッドレンダリング (フォールバック用内部メソッド) ==========
+
+  private resizeCanvas(): void {
+    const w = this.container.offsetWidth;
+    const h = this.container.offsetHeight;
+    if (w === 0 || h === 0) return;
+
+    this.canvasW = w;
+    this.canvasH = h;
+    this.canvas.width = Math.round(w * this.dpr);
+    this.canvas.height = Math.round(h * this.dpr);
+    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+  }
+
+  private getFontSize(): number {
+    const ratio = this.canvasW / 1920;
+    return DANMAKU_BASE_FONT_SIZE * (this.settings.danmakuScale / 100) * ratio;
+  }
+
+  private getTunnelHeight(fontSize: number): number {
+    const ratio = this.canvasW / 1920;
+    return fontSize + 6 * ratio;
+  }
+
+  private getDurationMs(): number {
+    const rate = this.settings.danmakuSpeedRate;
+    const isFullScreen = !!document.fullscreenElement;
+    return ((isFullScreen ? 5.5 : 5) / rate) * 1000;
+  }
+
+  private findTunnel(width: number, speed: number, _duration: number): number {
+    const now = performance.now();
+    const cw = this.canvasW;
+    const tunnelCount = Math.floor(this.canvasH / this.getTunnelHeight(this.getFontSize()));
+    const maxTunnels = this.settings.danmakuUnlimited ? tunnelCount * 2 : tunnelCount;
+    const gap = 30;
+
+    for (let i = 0; i < maxTunnels; i++) {
+      const info = this.tunnelInfo[i];
+
+      if (!info || !info.speed) {
+        this.tunnelInfo[i] = { entryTime: now, width, speed };
+        return i % tunnelCount;
+      }
+
+      // 条件1: 前のコメントの末尾が右端を通過済みか (間隔確保)
+      const tailClearedTime = info.entryTime + (info.width + gap) / info.speed;
+      if (now < tailClearedTime) continue;
+
+      // 条件2: 追い越し防止 — 新コメントの先頭が左端に到達するのが
+      //        前コメントの末尾が左端に到達するより後であること
+      const prevTailExitTime = info.entryTime + (cw + info.width) / info.speed;
+      const newLeadExitTime = now + cw / speed;
+      if (newLeadExitTime < prevTailExitTime) continue;
+
+      this.tunnelInfo[i] = { entryTime: now, width, speed };
+      return i % tunnelCount;
+    }
+    return -1;
+  }
+
+  private measureText(text: string, fontSize: number): number {
+    if (!this.measureCanvas || this.measureFontSize !== fontSize) {
+      this.measureFontSize = fontSize;
+      this.measureCanvas = document.createElement('canvas').getContext('2d');
+      const fontFamily = this.settings.danmakuFontFamily || "'Montserrat'";
+      this.measureCanvas!.font = `bold ${fontSize}px ${fontFamily}, "Segoe UI", Arial`;
+    }
+
+    let maxWidth = 0;
+    for (const line of text.split('\n')) {
+      const w = this.measureCanvas!.measureText(line).width;
+      if (w > maxWidth) maxWidth = w;
+    }
+    return maxWidth;
+  }
+
+  private startLoop(): void {
+    if (this.animFrameId || this.paused) return;
+    this.lastRenderTime = performance.now();
+    this.lastFpsCheck = this.lastRenderTime;
+    this.frameCount = 0;
+    this.animFrameId = requestAnimationFrame((t) => this.render(t));
+  }
+
+  private render(timestamp: number): void {
+    this.animFrameId = 0;
+
+    if (this.paused) return;
+    if (this.items.length === 0 && this.adminItems.length === 0) return;
+
+    const dt = timestamp - this.lastRenderTime;
+    this.lastRenderTime = timestamp;
+
+    if (dt > 500) {
+      this.animFrameId = requestAnimationFrame((t) => this.render(t));
+      return;
+    }
+
+    const cw = this.canvasW;
+    const ch = this.canvasH;
+
+    this.ctx.clearRect(0, 0, cw, ch);
+    this.renderAdminComments(timestamp, cw);
+    this.renderFlowingComments(dt, cw, ch);
+
+    this.frameCount++;
+    if (timestamp - this.lastFpsCheck >= 1000) {
+      this.currentFps = this.frameCount;
+      this.frameCount = 0;
+      this.lastFpsCheck = timestamp;
+      this.adjustQuality();
+    }
+
+    if (this.items.length > 0 || this.adminItems.length > 0) {
+      this.animFrameId = requestAnimationFrame((t) => this.render(t));
+    }
+  }
+
+  private renderFlowingComments(dt: number, cw: number, _ch: number): void {
+    const opacity = this.settings.danmakuOpacity;
+    const fontFamily = this.settings.danmakuFontFamily || "'Montserrat'";
+
+    let i = this.items.length;
+    while (i--) {
+      const item = this.items[i];
+
+      item.x -= item.speed * dt;
+
+      if (item.x + item.width < 0) {
+        this.items.splice(i, 1);
+        continue;
+      }
+
+      this.ctx.font = `bold ${item.fontSize}px ${fontFamily}, "Segoe UI", Arial`;
+      this.ctx.globalAlpha = opacity;
+      this.ctx.textBaseline = 'top';
+
+      const x = item.x;
+      const y = item.y;
+
+      this.ctx.lineWidth = 4;
+      this.ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+      this.ctx.lineJoin = 'round';
+      this.ctx.strokeText(item.text, x, y);
+
+      this.ctx.fillStyle = COMMENT_COLOR;
+      this.ctx.fillText(item.text, x, y);
+
+      if (item.mine) {
+        this.ctx.strokeStyle = 'rgba(255,204,0,0.85)';
+        this.ctx.lineWidth = 3;
+        this.ctx.strokeRect(x - 3, y - 2, item.width + 6, item.fontSize + 4);
+      }
+    }
+
+    this.ctx.globalAlpha = 1;
+  }
+
+  private renderAdminComments(timestamp: number, cw: number): void {
+    const fontFamily = this.settings.danmakuFontFamily || "'Montserrat'";
+
+    let i = this.adminItems.length;
+    while (i--) {
+      const item = this.adminItems[i];
+      const elapsed = timestamp - item.startTime;
+
+      if (elapsed > 5000) {
+        this.adminItems.splice(i, 1);
+        continue;
+      }
+
+      const progress = elapsed / 5000;
+      if (progress < 0.08) item.opacity = progress / 0.08;
+      else if (progress > 0.85) item.opacity = (1 - progress) / 0.15;
+      else item.opacity = 1;
+
+      const gradH = item.fontSize + 30;
+      const grad = this.ctx.createLinearGradient(0, 0, 0, gradH);
+      grad.addColorStop(0, `rgba(0,0,0,${0.7 * item.opacity})`);
+      grad.addColorStop(0.7, `rgba(0,0,0,${0.5 * item.opacity})`);
+      grad.addColorStop(1, `rgba(0,0,0,0)`);
+      this.ctx.fillStyle = grad;
+      this.ctx.fillRect(0, 0, cw, gradH);
+
+      this.ctx.font = `bold ${item.fontSize}px ${fontFamily}, "Segoe UI", Arial`;
+      this.ctx.textBaseline = 'top';
+      this.ctx.globalAlpha = item.opacity;
+
+      const x = (cw - item.width) / 2;
+      const y = 10;
+
+      this.ctx.lineWidth = 4;
+      this.ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+      this.ctx.lineJoin = 'round';
+      this.ctx.strokeText(item.text, x, y);
+
+      this.ctx.fillStyle = '#FFE133';
+      this.ctx.fillText(item.text, x, y);
+
+      this.ctx.globalAlpha = 1;
+    }
+  }
+
+  private adjustQuality(): void {
+    if (this.currentFps < 25 && this.maxActive > MIN_MAX_ACTIVE) {
+      this.maxActive = Math.max(MIN_MAX_ACTIVE, this.maxActive - 20);
+    } else if (this.currentFps > 50 && this.maxActive < ABSOLUTE_MAX_ACTIVE) {
+      this.maxActive = Math.min(ABSOLUTE_MAX_ACTIVE, this.maxActive + 10);
+    }
+  }
+}
+
+/** アクティブな通常コメント */
+interface ActiveComment {
+  text: string;
+  x: number;
+  y: number;
+  width: number;
+  speed: number;    // px / ms
+  fontSize: number;
+  mine: boolean;
+  tunnel: number;
+}
+
+/** アクティブな管理者コメント */
+interface ActiveAdmin {
+  text: string;
+  width: number;
+  fontSize: number;
+  startTime: number;
+  opacity: number;
 }

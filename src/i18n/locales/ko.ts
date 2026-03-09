@@ -169,6 +169,7 @@ const ko: TranslationKeys = {
 
   // --- 댓글 입력 ---
   input_placeholder: '댓글을 입력... (최대 45자)',
+  input_placeholder_admin: '관리자 댓글 (최대 45자)',
   input_send_title: '전송',
   input_ng_blocked: '이 댓글은 전송할 수 없습니다',
 
@@ -213,6 +214,7 @@ const ko: TranslationKeys = {
 
   // --- 콘텐츠 스크립트 UI ---
   cs_input_placeholder: '댓글을 입력...',
+  cs_input_placeholder_admin: '관리자 댓글',
   cs_send: '전송',
   cs_danmaku_toggle: '탄막 ON/OFF',
   cs_danmaku_label: '弾',

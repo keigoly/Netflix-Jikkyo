@@ -7,7 +7,12 @@
  * ニコ生のコメントストリームは Length-Delimited Protobuf (ChunkedMessage) で送られる。
  * CSP制約(eval禁止)のため protobufjs の動的コード生成は使えない。
  * 最小限の手動 varint/protobuf パーサーで必要なフィールドのみデコードする。
+ *
+ * 最適化: buf.subarray() で zero-copy ビュー、TextDecoder キャッシュ
  */
+
+/** 共有 TextDecoder インスタンス (インスタンス生成コスト回避) */
+const sharedDecoder = new TextDecoder();
 
 /** varint デコード: [value, bytesRead]
  * 64bit varint (最大10バイト) に対応。下位32ビットのみ返す。
@@ -29,11 +34,11 @@ function readVarint(buf: Uint8Array, offset: number): [number, number] {
   return [result >>> 0, pos - offset];
 }
 
-/** Length-delimited フィールド読み取り */
+/** Length-delimited フィールド読み取り (subarray で zero-copy) */
 function readLengthDelimited(buf: Uint8Array, offset: number): [Uint8Array, number] {
   const [len, lenBytes] = readVarint(buf, offset);
   const start = offset + lenBytes;
-  return [buf.slice(start, start + len), lenBytes + len];
+  return [buf.subarray(start, start + len), lenBytes + len];
 }
 
 /** Protobuf wire type */
@@ -66,7 +71,7 @@ function parseMessage(buf: Uint8Array): ProtoField[] {
         break;
       }
       case WIRE_64BIT: {
-        fields.push({ fieldNumber, wireType, data: buf.slice(offset, offset + 8) });
+        fields.push({ fieldNumber, wireType, data: buf.subarray(offset, offset + 8) });
         offset += 8;
         break;
       }
@@ -77,7 +82,7 @@ function parseMessage(buf: Uint8Array): ProtoField[] {
         break;
       }
       case WIRE_32BIT: {
-        fields.push({ fieldNumber, wireType, data: buf.slice(offset, offset + 4) });
+        fields.push({ fieldNumber, wireType, data: buf.subarray(offset, offset + 4) });
         offset += 4;
         break;
       }
@@ -101,7 +106,7 @@ function getFields(fields: ProtoField[], num: number): ProtoField[] {
 function getStringField(fields: ProtoField[], num: number): string | undefined {
   const f = getField(fields, num);
   if (!f || !(f.data instanceof Uint8Array)) return undefined;
-  return new TextDecoder().decode(f.data);
+  return sharedDecoder.decode(f.data);
 }
 
 function getVarintField(fields: ProtoField[], num: number): number | undefined {
@@ -180,7 +185,7 @@ export function splitLengthDelimited(buf: Uint8Array): { messages: Uint8Array[],
         offset = savedOffset;
         break;
       }
-      messages.push(buf.slice(offset, offset + len));
+      messages.push(buf.subarray(offset, offset + len));
       offset += len;
     } catch {
       offset = savedOffset;
@@ -269,7 +274,7 @@ function describeField(f: ProtoField): string {
     const type = f.wireType === WIRE_LENGTH_DELIMITED ? 'l' : f.wireType === WIRE_64BIT ? '64' : '32';
     if (f.wireType === WIRE_LENGTH_DELIMITED && f.data.length < 200) {
       try {
-        const str = new TextDecoder().decode(f.data);
+        const str = sharedDecoder.decode(f.data);
         if (/^[\x20-\x7e\u3000-\u9fff\uff00-\uffef\u0080-\u024f]+$/.test(str)) {
           return `f${f.fieldNumber}="${str.slice(0, 60)}"`;
         }

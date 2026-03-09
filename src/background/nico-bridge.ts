@@ -878,19 +878,19 @@ export class NicoBridge {
     // 古いコメントを除外 (NDGRの過去セグメント補完データ)
     if (age > MAX_COMMENT_AGE_S) return;
 
+    // userId が無い匿名コメントは除外 (NG設定不可のため表示しない)
+    if (!comment.userId) return;
+
     this.debugCommentsDispatched++;
     log(`[NicoBridge] Comment #${this.debugCommentsDispatched} no=${comment.no} age=${age}s "${comment.content.slice(0, 30)}"`);
 
     // ユーザーID → nico#N 連番マッピング
-    let nickname = 'ニコ生';
-    if (comment.userId) {
-      let num = this.nicoUserMap.get(comment.userId);
-      if (num === undefined) {
-        num = this.nextNicoUserNum++;
-        this.nicoUserMap.set(comment.userId, num);
-      }
-      nickname = `nico#${num}`;
+    let num = this.nicoUserMap.get(comment.userId);
+    if (num === undefined) {
+      num = this.nextNicoUserNum++;
+      this.nicoUserMap.set(comment.userId, num);
     }
+    const nickname = `nico#${num}`;
 
     const msg: NicoBridgeCommentMessage = {
       type: 'nico-bridge-comment',

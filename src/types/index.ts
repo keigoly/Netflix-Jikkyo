@@ -44,6 +44,10 @@ export interface Comment {
   userId?: string;
   /** コメントソース */
   source?: CommentSource;
+  /** 管理者コメントフラグ */
+  admin?: boolean;
+  /** 送信者がニコ生連携済みか (分析用、UIには非表示) */
+  nicoLinked?: boolean;
 }
 
 /** コメントの固定色 (白) */
@@ -59,6 +63,7 @@ export interface DanmakuItem {
 /** フォント選択肢 */
 export const FONT_OPTIONS: { label: string; value: string }[] = [
   { label: 'Montserrat', value: "'Montserrat'" },
+  { label: 'Noto Sans JP', value: "'NotoSansJP'" },
   { label: '游ゴシック', value: "'Yu Gothic', 'YuGothic'" },
   { label: 'メイリオ', value: "'Meiryo'" },
   { label: 'MS Pゴシック', value: "'MS PGothic', 'ＭＳ Ｐゴシック'" },
@@ -136,6 +141,8 @@ export interface P2PCommentMessage {
   signature?: string;
   /** コメントソース */
   source?: CommentSource;
+  /** 送信者がニコ生連携済みか */
+  nicoLinked?: boolean;
 }
 
 /** Service Worker へのメッセージ */
@@ -266,6 +273,19 @@ export interface AdConfig {
   variant: number;     // 1-3: ゆーちゃん画像バリアント
 }
 
+/** アーカイブコメント設定 */
+export interface ArchiveConfig {
+  enabled: boolean;
+  titles: Record<string, { duration: number; label?: string }>;
+}
+
+/** アーカイブコメントレスポンス (Worker → Background → Content) */
+export interface ArchiveComment {
+  text: string;
+  videoTime: number;
+  timestamp: number;
+}
+
 /** リモート機能フラグ (Cloudflare Workers から取得) */
 export interface FeatureFlags {
   liveRelay: boolean;
@@ -275,6 +295,7 @@ export interface FeatureFlags {
   minVersion: string | null;
   nicoBridge: NicoBridgeConfig;
   ad: AdConfig;
+  archive?: ArchiveConfig;
 }
 
 export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
@@ -285,6 +306,7 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   minVersion: null,
   nicoBridge: { enabled: false, lvId: null },
   ad: { enabled: false, linkUrl: null, dismissSec: 0, variant: 1 },
+  archive: { enabled: false, titles: {} },
 };
 
 /** コメント本文の最大文字数 */

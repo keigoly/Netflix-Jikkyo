@@ -117,7 +117,14 @@ export async function signOut(): Promise<void> {
     });
   }
 
-  await saveAuthState({ ...DEFAULT_AUTH_STATE });
+  // ユーザー固有データ (user, nicknameChangedAt, onboardingCompleted) を保持し、
+  // 認証フラグとトークンだけクリアする。再ログイン時に同一ユーザー判定が
+  // existing.user?.googleId で確実に成功するようにする。
+  await saveAuthState({
+    ...authState,
+    isAuthenticated: false,
+    accessToken: null,
+  });
 }
 
 const LOGOUT_STATE_KEY = 'logoutState';

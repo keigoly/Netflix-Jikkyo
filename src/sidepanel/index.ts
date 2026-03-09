@@ -2,7 +2,7 @@
 // Licensed under the Business Source License 1.1
 
 import { DEFAULT_SETTINGS, FONT_OPTIONS, MAX_COMMENT_TEXT_LENGTH, type Settings, type SidePanelComment, type SidePanelLogSynced, type SidePanelPeerCount, type SidePanelTabChanged, type SidePanelTitleInfo, type TitleMetadata } from '../types';
-import { getCommentsByTitle, exportAllComments, getStorageStats, clearAllComments, estimateStorageSize, trimCommentsByTitle } from './storage-proxy';
+import { getCommentsByTitle, exportAllComments, getStorageStats, clearAllComments, estimateStorageSize } from './storage-proxy';
 import { loadAdminPrivateKey } from '../utils/crypto';
 import { loadAuthState, signInWithGoogle, signOut, validateNickname, canChangeNickname, changeNickname, completeOnboarding } from '../utils/auth';
 import { isNGComment } from '../utils/ng-filter';
@@ -10,6 +10,7 @@ import { clearElement } from '../utils/sanitize';
 import { t, setLocale, getLocale, onLocaleChange, applyTranslations, LOCALE_OPTIONS } from '../i18n';
 import { log, warn } from '../utils/logger';
 import { CONTENT_TAB_PATTERNS, isContentPageUrl } from '../utils/url-patterns';
+import { formatCount } from '../utils/format';
 
 const MAX_DOM_COMMENTS = 10000;
 
@@ -129,6 +130,11 @@ let currentVideoTime = -1;   // 現在の動画再生位置 (秒)
 let isProgrammaticScroll = false; // プログラム的スクロール中フラグ
 let isLiveMode = false; // ニコ生ブリッジ接続中はライブモード (バッファスキップ)
 let isAtLiveEdge = false; // ライブエッジ（リアルタイム視聴中）かどうか
+let lastLiveEdgeTime = 0; // 最後にライブエッジだった時刻 (ms)
+/** ライブエッジの揺れを吸収するグレース期間 (ms)
+ *  Netflix の mid-roll 広告は2分以上続く場合があり、広告中は video-time-update が
+ *  停止して isAtLiveEdge が stale になる。5分のグレースで広告ブレイクをカバー。 */
+const LIVE_EDGE_GRACE_MS = 300_000;
 /** ニコ生コメント重複排除 (複数Netflixタブからの二重受信を防止) */
 const recentNicoKeys = new Set<string>();
 let commentCount = 0;
@@ -486,13 +492,22 @@ async function initSettings(): Promise<void> {
 let currentNGType: 'comment' | 'command' | 'userId' | null = null;
 let currentSettings: Settings = { ...DEFAULT_SETTINGS };
 
+/** ライブエッジの「粘着」判定: isAtLiveEdge の短期的な揺れを吸収する
+ *  HLS ライブストリームでは video.duration - video.currentTime が 30秒閾値を
+ *  一時的に超えることがあり、isAtLiveEdge が false に揺れる。
+ *  グレース期間内なら引き続きライブエッジとして扱う。 */
+function isEffectivelyAtLiveEdge(): boolean {
+  if (isAtLiveEdge) return true;
+  return isLiveMode && (Date.now() - lastLiveEdgeTime) < LIVE_EDGE_GRACE_MS;
+}
+
 /** 再生時間連動モードが有効かどうか (バッファ制御・挿入順・スクロール制御に使用)
  *  ハイライト表示のON/OFFとは独立 — ハイライトがOFFでもアーカイブ再生時の
  *  時間連動スクロール・バッファ制御は維持する */
 function isVideoTimeMode(): boolean {
   // ライブエッジ（リアルタイム視聴中）は再生時間連動を無効化 (末尾追加 + 自動スクロール)
-  // 追っかけ再生・アーカイブ再生時は再生時間連動を有効にする
-  if (isLiveMode && isAtLiveEdge) return false;
+  // 追っかけ再生 (ライブモードだがライブエッジでない) は再生時間連動を有効にする
+  if (isLiveMode && isEffectivelyAtLiveEdge()) return false;
   return currentVideoTime >= 0;
 }
 
@@ -776,8 +791,8 @@ popoutBtn.addEventListener('click', async () => {
   await chrome.storage.session.set({
     popoutState: {
       titleId: currentTitleId,
-      title: titleNameEl.textContent || '',
-      subtitle: titleSubtitleEl.textContent || '',
+      title: panelTitleEl.title || panelTitleEl.textContent || '',
+      subtitle: titleNameEl.textContent || '',
       description: titleDescriptionEl.textContent || '',
     },
   });
@@ -927,15 +942,72 @@ async function refreshStorageStats(): Promise<void> {
 exportSettingsBtn.addEventListener('click', async () => {
   exportSettingsBtn.disabled = true;
   try {
+    const isAdmin = (await loadAdminPrivateKey()) !== null;
     const json = await exportAllComments();
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
     const date = new Date().toISOString().slice(0, 10);
-    a.href = url;
-    a.download = `netflix-jikkyo-log-${date}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+
+    if (isAdmin) {
+      // 管理者モード: 詳細分析データ付きエクスポート
+      const comments = JSON.parse(json);
+      const peerStats = await chrome.runtime.sendMessage({ type: 'get-peer-stats' }).catch(() => null);
+
+      // ユーザー別分析
+      const userMap = new Map<string, { count: number; nicoLinked: boolean; lastSeen: number; nicknames: Set<string> }>();
+      for (const c of comments) {
+        const uid = c.userId || c.nickname || 'anonymous';
+        const entry = userMap.get(uid) || { count: 0, nicoLinked: false, lastSeen: 0, nicknames: new Set() };
+        entry.count++;
+        if (c.nicoLinked) entry.nicoLinked = true;
+        if (c.timestamp > entry.lastSeen) entry.lastSeen = c.timestamp;
+        if (c.nickname) entry.nicknames.add(c.nickname);
+        userMap.set(uid, entry);
+      }
+
+      const userAnalytics = Array.from(userMap.entries()).map(([userId, data]) => ({
+        userId,
+        commentCount: data.count,
+        nicoLinked: data.nicoLinked,
+        lastSeen: new Date(data.lastSeen).toISOString(),
+        nicknames: [...data.nicknames],
+      })).sort((a, b) => b.commentCount - a.commentCount);
+
+      // ソース別集計
+      const sourceStats = { p2p: 0, niconico: 0, unknown: 0 };
+      for (const c of comments) {
+        if (c.source === 'niconico') sourceStats.niconico++;
+        else if (c.source === 'p2p') sourceStats.p2p++;
+        else sourceStats.unknown++;
+      }
+
+      const adminExport = {
+        exportedAt: new Date().toISOString(),
+        version: chrome.runtime.getManifest().version,
+        totalComments: comments.length,
+        sourceStats,
+        peerStats: peerStats || { current: 0, max: 0, average: 0, samples: 0, uptimeMin: 0 },
+        nicoLinkedUsers: userAnalytics.filter(u => u.nicoLinked).length,
+        totalUniqueUsers: userAnalytics.length,
+        userAnalytics,
+        comments,
+      };
+
+      const blob = new Blob([JSON.stringify(adminExport, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `netflix-jikkyo-admin-${date}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } else {
+      // 通常エクスポート
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `netflix-jikkyo-log-${date}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
   } catch (e) {
     console.error('[Netflix Jikkyo] Export failed:', e);
   } finally {
@@ -983,7 +1055,7 @@ clearStorageBtn.addEventListener('click', async () => {
     commentCount = 0;
     commentNo = 0;
     totalComments = 0;
-    statTotal.textContent = t('stat_total', { count: 0 });
+    statTotal.textContent = t('stat_total', { count: formatCount(0, getLocale()) });
     showEmpty();
   } catch (e) {
     console.error('[Netflix Jikkyo] Clear storage failed:', e);
@@ -1000,7 +1072,10 @@ async function sendComment(): Promise<void> {
   if (isNGComment(text)) {
     commentInput.value = '';
     commentInput.placeholder = t('input_ng_blocked');
-    setTimeout(() => { commentInput.placeholder = t('input_placeholder'); }, 2000);
+    setTimeout(() => {
+      const key = commentInput.dataset.i18nPlaceholder as 'input_placeholder_admin' | 'input_placeholder';
+      commentInput.placeholder = t(key || 'input_placeholder');
+    }, 2000);
     return;
   }
 
@@ -1209,7 +1284,7 @@ function resetPace(): void {
 
 function updateTotal(): void {
   totalComments++;
-  statTotal.textContent = t('stat_total', { count: totalComments });
+  statTotal.textContent = t('stat_total', { count: formatCount(totalComments, getLocale()) });
 }
 
 // --- コメントバッファ管理 ---
@@ -1253,10 +1328,43 @@ async function flushCommentBuffer(): Promise<void> {
   } catch { /* 無視 */ }
 }
 
+/** バッファ内の再生時間到達コメントを自動フラッシュする (追っかけ再生・アーカイブ用) */
+function autoFlushBufferUpTo(videoTime: number): void {
+  if (commentBuffer.length === 0) return;
+
+  const toFlush: BufferedComment[] = [];
+  const remaining: BufferedComment[] = [];
+  for (const c of commentBuffer) {
+    if (c.videoTime != null && c.videoTime <= videoTime + 0.5) {
+      toFlush.push(c);
+    } else {
+      remaining.push(c);
+    }
+  }
+
+  if (toFlush.length === 0) return;
+
+  // 再生時間順にソート
+  toFlush.sort((a, b) => {
+    const vtA = a.videoTime ?? Infinity;
+    const vtB = b.videoTime ?? Infinity;
+    if (vtA !== vtB) return vtA - vtB;
+    return a.timestamp - b.timestamp;
+  });
+
+  for (const c of toFlush) {
+    addComment(c.text, c.nickname, c.timestamp, false, c.admin, false, c.videoTime, c.userId, c.source);
+  }
+
+  commentBuffer = remaining;
+  updateBufferBanner();
+}
+
 /** バナーの表示/非表示を切り替える */
 function updateBufferBanner(): void {
-  // ライブエッジ（リアルタイム視聴中）はバナーを常に非表示
-  if (isLiveMode && isAtLiveEdge) {
+  // ライブエッジ中はバナーを常に非表示 (コメントは即座に表示される)
+  // 追っかけ再生中はバッファバナーを表示する
+  if (isLiveMode && isEffectivelyAtLiveEdge()) {
     newCommentsBar.classList.add('hidden');
     return;
   }
@@ -1311,12 +1419,6 @@ async function loadPastComments(): Promise<void> {
   nextNicoUserNumber = 1;
 
   try {
-    // 1万件超過分をIndexedDBからトリム
-    const trimmed = await trimCommentsByTitle(currentTitleId, MAX_DOM_COMMENTS);
-    if (trimmed > 0) {
-      log(`[Netflix Jikkyo] Trimmed ${trimmed} old comments for title ${currentTitleId}`);
-    }
-
     const comments = await getCommentsByTitle(currentTitleId);
     if (comments.length === 0) return;
 
@@ -1328,6 +1430,7 @@ async function loadPastComments(): Promise<void> {
       return a.timestamp - b.timestamp;
     });
 
+    // DOM には最新 MAX_DOM_COMMENTS 件のみ表示 (パフォーマンス)
     const toShow = comments.length > MAX_DOM_COMMENTS
       ? comments.slice(-MAX_DOM_COMMENTS)
       : comments;
@@ -1337,24 +1440,42 @@ async function loadPastComments(): Promise<void> {
 
     const fragment = document.createDocumentFragment();
     for (const c of toShow) {
+      // userId が無いニコ生匿名コメントはスキップ
+      if (c.source === 'niconico' && !c.userId) continue;
       commentNo++;
-      const row = createCommentRow(commentNo, c.nickname, c.text, c.timestamp, false, true, false, c.videoTime, c.userId, c.source);
+      const row = createCommentRow(commentNo, c.nickname, c.text, c.timestamp, false, true, c.admin ?? false, c.videoTime, c.userId, c.source);
       fragment.appendChild(row);
     }
     commentList.appendChild(fragment);
     commentCount += toShow.length;
-    totalComments = toShow.length;
-    statTotal.textContent = t('stat_total', { count: totalComments });
+    totalComments = comments.length; // IndexedDB の実件数 (DOM上限とは独立)
+    statTotal.textContent = t('stat_total', { count: formatCount(totalComments, getLocale()) });
 
     // 再生時間連動モード: 現在の再生位置にスクロール
     if (isVideoTimeMode()) {
-      scrollToVideoTime(currentVideoTime);
+      requestAnimationFrame(() => scrollToVideoTime(currentVideoTime));
     } else {
       commentList.scrollTop = commentList.scrollHeight;
     }
   } catch (e) {
     console.error('[Netflix Jikkyo] Failed to load past comments:', e);
   }
+}
+
+// --- 管理者コメント マーキー ---
+
+/** 管理者コメントのテキストがはみ出す場合にマーキーアニメーションを適用する */
+function applyAdminMarquee(textEl: HTMLElement, text: string): void {
+  if (textEl.scrollWidth <= textEl.clientWidth) return;
+  textEl.classList.add('nfjk-admin-marquee');
+  textEl.textContent = '';
+  const inner = document.createElement('span');
+  inner.className = 'nfjk-marquee-inner';
+  inner.textContent = text + '\u00A0\u00A0\u00A0\u2014\u00A0\u00A0\u00A0' + text + '\u00A0\u00A0\u00A0\u2014\u00A0\u00A0\u00A0';
+  const speed = 40; // px/s
+  const duration = Math.max((text.length * 10 + 48) / speed, 6);
+  inner.style.setProperty('--nfjk-marquee-duration', `${duration}s`);
+  textEl.appendChild(inner);
 }
 
 // --- コメント行の生成 ---
@@ -1420,6 +1541,13 @@ function createCommentRow(
   row.appendChild(textEl);
   row.appendChild(dateEl);
 
+  // 管理者コメント: 1行に収まらなければマーキーアニメーション
+  if (admin) {
+    requestAnimationFrame(() => {
+      applyAdminMarquee(textEl, text);
+    });
+  }
+
   return row;
 }
 
@@ -1460,14 +1588,18 @@ function formatWriteDate(ts: number): string {
 }
 
 function addComment(text: string, nickname: string, timestamp: number, mine: boolean, admin = false, skipStats = false, videoTime?: number, userId?: string, source?: string): void {
+  // userId が無いニコ生匿名コメントは表示しない (NG設定不可のため)
+  if (source === 'niconico' && !mine && !admin && !userId) return;
+
   const empty = commentList.querySelector('.empty-message');
   if (empty) empty.remove();
 
   commentNo++;
   const row = createCommentRow(commentNo, nickname, text, timestamp, mine, false, admin, videoTime, userId, source);
 
-  // videoTime が有効な場合、再生時間順の正しい位置に挿入する (ライブエッジでは末尾追加)
-  if (videoTime != null && (!isLiveMode || !isAtLiveEdge)) {
+  // videoTime が有効な場合、再生時間順の正しい位置に挿入する
+  // ライブエッジでは常に末尾追加、追っかけ再生中は時間順挿入
+  if (videoTime != null && !(isLiveMode && isEffectivelyAtLiveEdge())) {
     const rows = commentList.querySelectorAll('.comment-row[data-video-time]');
     let insertBefore: Element | null = null;
     // 二分探索: videoTime より大きい最初の行を見つける
@@ -1622,25 +1754,41 @@ function scrollToVideoTime(videoTime: number): void {
     }
   }
 
-  // targetRow が見えるようにスクロール (下部80%に配置 — ネタバレ防止)
-  programmaticScroll(() => {
-    const listRect = commentList.getBoundingClientRect();
-    const rowRect = targetRow.getBoundingClientRect();
-    const rowCenter = rowRect.top + rowRect.height / 2;
-    const targetY = listRect.top + listRect.height * 0.8;
-    const offset = rowCenter - targetY;
-    commentList.scrollTop += offset;
+  // targetRow が見えるようにスクロール (最下部に配置 — ネタバレ防止)
+  // rAF でレイアウト確定後にスクロール (大量DOM追加直後の getBoundingClientRect 不正値対策)
+  requestAnimationFrame(() => {
+    programmaticScroll(() => {
+      const listRect = commentList.getBoundingClientRect();
+      const rowRect = targetRow.getBoundingClientRect();
+      const rowCenter = rowRect.top + rowRect.height / 2;
+      const targetY = listRect.top + listRect.height - rowRect.height / 2 - 4;
+      const offset = rowCenter - targetY;
+      commentList.scrollTop += offset;
+    });
   });
 }
 
 /** 動画再生位置の更新を受けてサイドパネルを自動スクロールする */
 function handleVideoTimeUpdate(videoTime: number, paused: boolean, liveEdge?: boolean): void {
+  // シーク検出: 大幅な巻き戻しはライブエッジ離脱 (追っかけ再生開始) とみなす
+  if (currentVideoTime >= 0 && videoTime < currentVideoTime - 10) {
+    isAtLiveEdge = false;
+    lastLiveEdgeTime = 0; // グレース期間リセット
+  }
+
   currentVideoTime = videoTime;
   isAtLiveEdge = !!liveEdge;
+  if (liveEdge) lastLiveEdgeTime = Date.now();
 
-  // ライブエッジ（リアルタイム視聴中）のみvideoTimeベースの操作を無効化
-  // 追っかけ再生・アーカイブ再生時は再生時間連動スクロールを有効にする
-  if (isLiveMode && isAtLiveEdge) return;
+  // ライブエッジ中: 残バッファを全フラッシュ (追っかけ→ライブ復帰、広告明け等)
+  // 追っかけ再生中はバッファを時間ベースでフラッシュ
+  if (isLiveMode && isEffectivelyAtLiveEdge()) {
+    if (commentBuffer.length > 0) flushCommentBuffer();
+    return;
+  }
+
+  // 追っかけ再生・アーカイブ: バッファ内の再生時間到達コメントを自動フラッシュ
+  autoFlushBufferUpTo(videoTime);
 
   // 動画時間ベースの勢い更新 (一時停止中も再生位置は変わらないが更新する)
   updateVideoTimePace(videoTime);
@@ -1657,12 +1805,6 @@ async function reloadPastComments(): Promise<void> {
   if (!currentTitleId) return;
 
   try {
-    // データ取得を先に完了させてからDOM更新 (フラッシュ防止)
-    const trimmed = await trimCommentsByTitle(currentTitleId, MAX_DOM_COMMENTS);
-    if (trimmed > 0) {
-      log(`[Netflix Jikkyo] Trimmed ${trimmed} old comments for title ${currentTitleId}`);
-    }
-
     const comments = await getCommentsByTitle(currentTitleId);
 
     // 再生時間順にソート
@@ -1673,6 +1815,7 @@ async function reloadPastComments(): Promise<void> {
       return a.timestamp - b.timestamp;
     });
 
+    // DOM には最新 MAX_DOM_COMMENTS 件のみ表示 (パフォーマンス)
     const toShow = comments.length > MAX_DOM_COMMENTS
       ? comments.slice(-MAX_DOM_COMMENTS)
       : comments;
@@ -1685,8 +1828,10 @@ async function reloadPastComments(): Promise<void> {
     const fragment = document.createDocumentFragment();
     let newCommentNo = 0;
     for (const c of toShow) {
+      // userId が無いニコ生匿名コメントはスキップ
+      if (c.source === 'niconico' && !c.userId) continue;
       newCommentNo++;
-      const row = createCommentRow(newCommentNo, c.nickname, c.text, c.timestamp, false, true, false, c.videoTime, c.userId, c.source);
+      const row = createCommentRow(newCommentNo, c.nickname, c.text, c.timestamp, false, true, c.admin ?? false, c.videoTime, c.userId, c.source);
       fragment.appendChild(row);
     }
 
@@ -1698,13 +1843,14 @@ async function reloadPastComments(): Promise<void> {
 
     commentNo = newCommentNo;
     commentCount = toShow.length;
-    totalComments = toShow.length;
-    statTotal.textContent = t('stat_total', { count: totalComments });
+    totalComments = comments.length; // IndexedDB の実件数 (DOM上限とは独立)
+    statTotal.textContent = t('stat_total', { count: formatCount(totalComments, getLocale()) });
 
     if (commentCount === 0) {
       showEmpty();
     } else if (isVideoTimeMode()) {
-      scrollToVideoTime(currentVideoTime);
+      // DOM追加直後はレイアウト未完了の場合がある → rAF で遅延
+      requestAnimationFrame(() => scrollToVideoTime(currentVideoTime));
     } else {
       commentList.scrollTop = commentList.scrollHeight;
     }
@@ -1956,13 +2102,11 @@ chrome.runtime.onMessage.addListener((message: any) => {
     if (mine) {
       // 自分のコメントは常に即座に表示
       addComment(text, nickname, timestamp, true, admin, false, videoTime, userId, source);
-    } else if (isLiveMode && isAtLiveEdge) {
+    } else if (isLiveMode && isEffectivelyAtLiveEdge()) {
       // ライブエッジ（リアルタイム視聴中）: 即座に表示
       if (source === 'niconico') {
-        // ニコ生コメント: ドリップキューで1つずつ滑らかに表示
         dripNicoComment(text, nickname, timestamp, admin ?? false, videoTime, userId, source);
       } else {
-        // P2Pコメント: 即座に表示
         addComment(text, nickname, timestamp, false, admin, false, videoTime, userId, source);
       }
     } else {
@@ -2126,6 +2270,8 @@ authGoogleBtn.addEventListener('click', async () => {
   authError.textContent = '';
   try {
     await signInWithGoogle();
+    // ニコ生ブリッジを新アカウントの状態で再評価
+    chrome.runtime.sendMessage({ type: 'google-account-changed' }).catch(() => {});
     await checkAuth(); // オンボーディングへ遷移
   } catch (e) {
     authError.textContent = e instanceof Error ? e.message : t('auth_login_failed');
@@ -2166,6 +2312,8 @@ onboardingStartBtn.addEventListener('click', async () => {
 
 signoutBtn.addEventListener('click', async () => {
   await signOut();
+  // ニコ生ブリッジをリセット (ログアウトしたユーザーの連携を次のユーザーに引き継がない)
+  chrome.runtime.sendMessage({ type: 'google-account-changed' }).catch(() => {});
   // 設定スライドを閉じてから認証ゲートへ
   settingsSlide.classList.remove('nfjk-settings-open');
   gearBtn.classList.remove('active');
@@ -2479,13 +2627,10 @@ function handleNicoBridgeState(state: Record<string, unknown>): void {
   // ライブモード切替
   if (status === 'connected') {
     isLiveMode = true;
-    // ライブエッジの場合のみ自動スクロール＋バッファフラッシュ
-    // 追っかけ再生時は再生時間連動モードを維持
-    if (isAtLiveEdge) {
-      autoScroll = true;
-      scrollBtn.classList.add('hidden');
-      flushCommentBuffer();
-    }
+    // ライブモード開始 → 自動スクロール + バッファフラッシュ
+    autoScroll = true;
+    scrollBtn.classList.add('hidden');
+    if (commentBuffer.length > 0) flushCommentBuffer();
   } else {
     isLiveMode = false;
   }
@@ -2545,6 +2690,21 @@ chrome.runtime.sendMessage({ type: 'refresh-config' });
 // 起動時: ニコ生ブリッジ状態取得
 chrome.runtime.sendMessage({ type: 'get-nico-bridge-state' }, (state) => {
   if (state) handleNicoBridgeState(state);
+});
+
+// 起動時: P2Pピア数取得 (即時表示)
+chrome.runtime.sendMessage({ type: 'get-peer-count' }, (res) => {
+  if (res?.count !== undefined && peerCountEl) {
+    peerCountEl.textContent = t('stat_peers', { count: res.count });
+  }
+});
+
+// 起動時: 管理者モードのプレースホルダー設定
+loadAdminPrivateKey().then((key) => {
+  if (key) {
+    commentInput.dataset.i18nPlaceholder = 'input_placeholder_admin';
+    commentInput.placeholder = t('input_placeholder_admin');
+  }
 });
 
 // 起動時: ニコニコ連携状態確認
