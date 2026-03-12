@@ -31,6 +31,7 @@ let danmaku: DanmakuRenderer | null = null;
 let room: P2PRoom | null = null;
 let adminPrivateKey: JsonWebKey | null = null;
 let cleanupNav: (() => void) | null = null;
+let urlPollTimer: ReturnType<typeof setInterval> | null = null;
 let cleanupFs: (() => void) | null = null;
 let cleanupVideo: (() => void) | null = null;
 let videoObserver: MutationObserver | null = null;
@@ -334,10 +335,10 @@ function watchDocumentTitle(): void {
 }
 
 /** サイドパネルにコメントを送信する */
-function sendToSidePanel(text: string, nickname: string, timestamp: number, mine: boolean, admin = false, videoTime?: number, userId?: string, source?: CommentSource): void {
+function sendToSidePanel(text: string, nickname: string, timestamp: number, mine: boolean, admin = false, videoTime?: number, userId?: string, source?: CommentSource, nicoLinked?: boolean): void {
   const msg: SidePanelComment = {
     type: 'comment',
-    comment: { text, nickname, timestamp, mine, admin, videoTime, userId, source },
+    comment: { text, nickname, timestamp, mine, admin, videoTime, userId, source, nicoLinked },
   };
   safeSendMessage(msg);
 }
@@ -585,6 +586,14 @@ function watchVideoElement(): void {
     if (video && video !== connectedVideo) {
       log('New video element detected, re-attaching listeners');
       attachVideoListeners(video);
+
+      // URL変更検知のフォールバック (他拡張による history.pushState フック破壊対策)
+      // エピソード遷移で video 要素が差し替わった時に titleId 変更を検出
+      const newTitleId = getTitleId();
+      if (newTitleId && newTitleId !== currentTitleId) {
+        log(`Title changed during video swap: ${currentTitleId} → ${newTitleId}`);
+        initialize();
+      }
     }
   });
 
@@ -976,7 +985,7 @@ async function initialize(): Promise<void> {
       }
 
       // サイドパネルに送信
-      sendToSidePanel(displayText, msg.nickname, msg.timestamp, false, isAdmin, videoTime, msg.userId, source);
+      sendToSidePanel(displayText, msg.nickname, msg.timestamp, false, isAdmin, videoTime, msg.userId, source, msg.nicoLinked);
 
       // IndexedDB に保存
       const comment: Comment = {
@@ -1326,12 +1335,30 @@ cleanupNav = watchNavigation((url) => {
   }
 });
 
+// URL ポーリング: watchNavigation のフォールバック
+// 他拡張が history.pushState フックを上書きした場合にもエピソード遷移を検出
+urlPollTimer = setInterval(() => {
+  const newTitleId = getTitleId();
+  if (newTitleId && newTitleId !== currentTitleId) {
+    log(`URL poll detected title change: ${currentTitleId} → ${newTitleId}`);
+    initialize();
+  } else if (!newTitleId && currentTitleId) {
+    // Netflix 外のページに遷移した場合
+    cleanup();
+    updateBadge(0);
+  }
+}, 2000);
+
 // ページ離脱時クリーンアップ
 window.addEventListener('beforeunload', () => {
   cleanup();
   if (cleanupNav) {
     cleanupNav();
     cleanupNav = null;
+  }
+  if (urlPollTimer) {
+    clearInterval(urlPollTimer);
+    urlPollTimer = null;
   }
 });
 

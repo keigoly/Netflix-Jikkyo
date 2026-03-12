@@ -152,6 +152,7 @@ interface BufferedComment {
   videoTime?: number;
   userId?: string;
   source?: string;
+  nicoLinked?: boolean;
 }
 let commentBuffer: BufferedComment[] = [];
 
@@ -178,19 +179,20 @@ interface DripItem {
   videoTime?: number;
   userId?: string;
   source?: string;
+  nicoLinked?: boolean;
 }
 let dripQueue: DripItem[] = [];
 let dripTimer: number | null = null;
 
-function dripNicoComment(text: string, nickname: string, timestamp: number, admin: boolean, videoTime?: number, userId?: string, source?: string): void {
+function dripNicoComment(text: string, nickname: string, timestamp: number, admin: boolean, videoTime?: number, userId?: string, source?: string, nicoLinked?: boolean): void {
   if (dripQueue.length >= DRIP_MAX_QUEUE) {
     // オーバーフロー: 即座にフラッシュ
     for (const c of dripQueue) {
-      addComment(c.text, c.nickname, c.timestamp, c.mine, c.admin, false, c.videoTime, c.userId, c.source);
+      addComment(c.text, c.nickname, c.timestamp, c.mine, c.admin, false, c.videoTime, c.userId, c.source, c.nicoLinked);
     }
     dripQueue = [];
   }
-  dripQueue.push({ text, nickname, timestamp, mine: false, admin, videoTime, userId, source });
+  dripQueue.push({ text, nickname, timestamp, mine: false, admin, videoTime, userId, source, nicoLinked });
   // ドレインが未起動なら遅延開始 (バッチ蓄積待ち)
   // ※ 同期的に drain するとメッセージが1件ずつ即座に処理されてバーストする
   if (dripTimer === null) {
@@ -202,7 +204,7 @@ function drainNicoDrip(): void {
   dripTimer = null;
   if (dripQueue.length === 0) return;
   const c = dripQueue.shift()!;
-  addComment(c.text, c.nickname, c.timestamp, c.mine, c.admin, false, c.videoTime, c.userId, c.source);
+  addComment(c.text, c.nickname, c.timestamp, c.mine, c.admin, false, c.videoTime, c.userId, c.source, c.nicoLinked);
 
   if (dripQueue.length > 0) {
     // バッチ全体を MAX_TOTAL_MS 以内に完了
@@ -1293,8 +1295,8 @@ function updateTotal(): void {
 const COMMENT_BUFFER_MAX = 500;
 
 /** バッファにコメントを追加し、バナーを更新する */
-function bufferComment(text: string, nickname: string, timestamp: number, admin: boolean, videoTime?: number, userId?: string, source?: string): void {
-  commentBuffer.push({ text, nickname, timestamp, admin, videoTime, userId, source });
+function bufferComment(text: string, nickname: string, timestamp: number, admin: boolean, videoTime?: number, userId?: string, source?: string, nicoLinked?: boolean): void {
+  commentBuffer.push({ text, nickname, timestamp, admin, videoTime, userId, source, nicoLinked });
   updateBufferBanner();
 
   // 上限超過 → 自動フラッシュ
@@ -1314,7 +1316,7 @@ async function flushCommentBuffer(): Promise<void> {
   });
   // サイドパネル側フラッシュ (勢い・累計はここで計上)
   for (const c of commentBuffer) {
-    addComment(c.text, c.nickname, c.timestamp, false, c.admin, false, c.videoTime, c.userId, c.source);
+    addComment(c.text, c.nickname, c.timestamp, false, c.admin, false, c.videoTime, c.userId, c.source, c.nicoLinked);
   }
   commentBuffer = [];
   updateBufferBanner();
@@ -1353,7 +1355,7 @@ function autoFlushBufferUpTo(videoTime: number): void {
   });
 
   for (const c of toFlush) {
-    addComment(c.text, c.nickname, c.timestamp, false, c.admin, false, c.videoTime, c.userId, c.source);
+    addComment(c.text, c.nickname, c.timestamp, false, c.admin, false, c.videoTime, c.userId, c.source, c.nicoLinked);
   }
 
   commentBuffer = remaining;
@@ -1443,7 +1445,7 @@ async function loadPastComments(): Promise<void> {
       // userId が無いニコ生匿名コメントはスキップ
       if (c.source === 'niconico' && !c.userId) continue;
       commentNo++;
-      const row = createCommentRow(commentNo, c.nickname, c.text, c.timestamp, false, true, c.admin ?? false, c.videoTime, c.userId, c.source);
+      const row = createCommentRow(commentNo, c.nickname, c.text, c.timestamp, false, true, c.admin ?? false, c.videoTime, c.userId, c.source, c.nicoLinked);
       fragment.appendChild(row);
     }
     commentList.appendChild(fragment);
@@ -1491,6 +1493,7 @@ function createCommentRow(
   videoTime?: number,
   userId?: string,
   source?: string,
+  nicoLinked?: boolean,
 ): HTMLDivElement {
   // 自分のコメント判定: mine フラグ or userId一致
   const isMine = mine || (!!userId && !!currentUserId && userId === currentUserId);
@@ -1519,7 +1522,8 @@ function createCommentRow(
   }
   const nicknameEl = document.createElement('span');
   nicknameEl.className = 'comment-nickname';
-  if (source === 'niconico') nicknameEl.classList.add('nfjk-nico-user');
+  // ニコ生ソース or ニコ生連携済みP2Pユーザー → オレンジ色
+  if (source === 'niconico' || (nicoLinked && !isMine)) nicknameEl.classList.add('nfjk-nico-user');
   nicknameEl.textContent = displayName;
 
   const textEl = document.createElement('span');
@@ -1587,7 +1591,7 @@ function formatWriteDate(ts: number): string {
   return `${yyyy}/${MM}/${dd}(${day}) ${hh}:${mm}`;
 }
 
-function addComment(text: string, nickname: string, timestamp: number, mine: boolean, admin = false, skipStats = false, videoTime?: number, userId?: string, source?: string): void {
+function addComment(text: string, nickname: string, timestamp: number, mine: boolean, admin = false, skipStats = false, videoTime?: number, userId?: string, source?: string, nicoLinked?: boolean): void {
   // userId が無いニコ生匿名コメントは表示しない (NG設定不可のため)
   if (source === 'niconico' && !mine && !admin && !userId) return;
 
@@ -1595,7 +1599,7 @@ function addComment(text: string, nickname: string, timestamp: number, mine: boo
   if (empty) empty.remove();
 
   commentNo++;
-  const row = createCommentRow(commentNo, nickname, text, timestamp, mine, false, admin, videoTime, userId, source);
+  const row = createCommentRow(commentNo, nickname, text, timestamp, mine, false, admin, videoTime, userId, source, nicoLinked);
 
   // videoTime が有効な場合、再生時間順の正しい位置に挿入する
   // ライブエッジでは常に末尾追加、追っかけ再生中は時間順挿入
@@ -1831,7 +1835,7 @@ async function reloadPastComments(): Promise<void> {
       // userId が無いニコ生匿名コメントはスキップ
       if (c.source === 'niconico' && !c.userId) continue;
       newCommentNo++;
-      const row = createCommentRow(newCommentNo, c.nickname, c.text, c.timestamp, false, true, c.admin ?? false, c.videoTime, c.userId, c.source);
+      const row = createCommentRow(newCommentNo, c.nickname, c.text, c.timestamp, false, true, c.admin ?? false, c.videoTime, c.userId, c.source, c.nicoLinked);
       fragment.appendChild(row);
     }
 
@@ -2088,7 +2092,7 @@ chrome.runtime.onMessage.addListener((message: any) => {
     // 基本型チェック (背景スクリプト経由でも防御的に検証)
     if (!c || typeof c.text !== 'string' || typeof c.nickname !== 'string' || typeof c.timestamp !== 'number') return;
     const text = c.text.slice(0, MAX_COMMENT_TEXT_LENGTH);
-    const { nickname, timestamp, mine, admin, videoTime, userId, source } = c;
+    const { nickname, timestamp, mine, admin, videoTime, userId, source, nicoLinked } = c;
     // ニコ生コメント: 表示OFF or 重複排除
     if (source === 'niconico') {
       if (currentSettings.showNicoComments === false) return;
@@ -2101,17 +2105,17 @@ chrome.runtime.onMessage.addListener((message: any) => {
 
     if (mine) {
       // 自分のコメントは常に即座に表示
-      addComment(text, nickname, timestamp, true, admin, false, videoTime, userId, source);
+      addComment(text, nickname, timestamp, true, admin, false, videoTime, userId, source, nicoLinked);
     } else if (isLiveMode && isEffectivelyAtLiveEdge()) {
       // ライブエッジ（リアルタイム視聴中）: 即座に表示
       if (source === 'niconico') {
-        dripNicoComment(text, nickname, timestamp, admin ?? false, videoTime, userId, source);
+        dripNicoComment(text, nickname, timestamp, admin ?? false, videoTime, userId, source, nicoLinked);
       } else {
-        addComment(text, nickname, timestamp, false, admin, false, videoTime, userId, source);
+        addComment(text, nickname, timestamp, false, admin, false, videoTime, userId, source, nicoLinked);
       }
     } else {
       // 追っかけ再生・アーカイブ・通常VOD: バッファに追加 (表示保留)
-      bufferComment(text, nickname, timestamp, admin ?? false, videoTime, userId, source);
+      bufferComment(text, nickname, timestamp, admin ?? false, videoTime, userId, source, nicoLinked);
     }
   } else if (message.type === 'nico-bridge-state') {
     handleNicoBridgeState(message);

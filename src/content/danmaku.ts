@@ -273,10 +273,36 @@ export class DanmakuRenderer {
       }
 
       if (item.admin) {
+        // フォントサイズを自動調整: 画面幅の90%に収まるようにする
+        // 最小フォントサイズ: 通常コメントの40% (読みやすさ下限)
+        const maxWidth = cw * 0.9;
+        const minFontSize = fontSize * 0.4;
+        let adminFontSize = fontSize * 1.15;
+        let adminWidth = this.measureText(text, adminFontSize);
+        if (adminWidth > maxWidth && adminWidth > 0) {
+          adminFontSize = adminFontSize * (maxWidth / adminWidth);
+          // 最小フォントサイズを下回る場合はテキストを省略
+          if (adminFontSize < minFontSize) {
+            adminFontSize = minFontSize;
+            const charWidth = this.measureText(text, adminFontSize) / text.length;
+            let maxChars = Math.floor(maxWidth / charWidth) - 1;
+            if (maxChars > 0 && maxChars < text.length) {
+              text = text.slice(0, maxChars) + '…';
+            }
+            adminWidth = this.measureText(text, adminFontSize);
+            // 幅超過時は1文字ずつ削って再計測 (日本語・ASCII混在対応)
+            while (adminWidth > maxWidth && text.length > 2) {
+              text = text.slice(0, -2) + '…';
+              adminWidth = this.measureText(text, adminFontSize);
+            }
+          } else {
+            adminWidth = maxWidth;
+          }
+        }
         this.adminItems.push({
           text,
-          width: this.measureText(text, fontSize * 1.15),
-          fontSize: fontSize * 1.15,
+          width: adminWidth,
+          fontSize: adminFontSize,
           startTime: performance.now(),
           opacity: 0,
         });
@@ -541,43 +567,42 @@ export class DanmakuRenderer {
 
   private renderAdminComments(timestamp: number, cw: number): void {
     const fontFamily = this.settings.danmakuFontFamily || "'Montserrat'";
+    const ADMIN_DURATION = 10000; // 10秒表示
 
     let i = this.adminItems.length;
     while (i--) {
       const item = this.adminItems[i];
       const elapsed = timestamp - item.startTime;
 
-      if (elapsed > 5000) {
+      if (elapsed > ADMIN_DURATION) {
         this.adminItems.splice(i, 1);
         continue;
       }
 
-      const progress = elapsed / 5000;
-      if (progress < 0.08) item.opacity = progress / 0.08;
-      else if (progress > 0.85) item.opacity = (1 - progress) / 0.15;
+      const progress = elapsed / ADMIN_DURATION;
+      if (progress < 0.05) item.opacity = progress / 0.05;
+      else if (progress > 0.9) item.opacity = (1 - progress) / 0.1;
       else item.opacity = 1;
 
-      const gradH = item.fontSize + 30;
-      const grad = this.ctx.createLinearGradient(0, 0, 0, gradH);
-      grad.addColorStop(0, `rgba(0,0,0,${0.7 * item.opacity})`);
-      grad.addColorStop(0.7, `rgba(0,0,0,${0.5 * item.opacity})`);
-      grad.addColorStop(1, `rgba(0,0,0,0)`);
-      this.ctx.fillStyle = grad;
-      this.ctx.fillRect(0, 0, cw, gradH);
+      // 半透明の暗いバー背景 (ニコ生風)
+      const barH = item.fontSize + 16;
+      this.ctx.fillStyle = `rgba(0,0,0,${0.6 * item.opacity})`;
+      this.ctx.fillRect(0, 0, cw, barH);
 
       this.ctx.font = `bold ${item.fontSize}px ${fontFamily}, "Segoe UI", Arial`;
       this.ctx.textBaseline = 'top';
       this.ctx.globalAlpha = item.opacity;
 
       const x = (cw - item.width) / 2;
-      const y = 10;
+      const y = 8;
 
-      this.ctx.lineWidth = 4;
-      this.ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+      // 白テキスト + 黒縁取り
+      this.ctx.lineWidth = 3;
+      this.ctx.strokeStyle = 'rgba(0,0,0,0.8)';
       this.ctx.lineJoin = 'round';
       this.ctx.strokeText(item.text, x, y);
 
-      this.ctx.fillStyle = '#FFE133';
+      this.ctx.fillStyle = '#FFFFFF';
       this.ctx.fillText(item.text, x, y);
 
       this.ctx.globalAlpha = 1;

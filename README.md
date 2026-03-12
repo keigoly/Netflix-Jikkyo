@@ -7,7 +7,7 @@
 <p align="center"><strong>Netflix でみんなとコメントしよう</strong></p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.5-E50914" alt="Version">
+  <img src="https://img.shields.io/badge/version-1.0.6-E50914" alt="Version">
   <img src="https://img.shields.io/badge/chrome-MV3-4285F4" alt="Manifest V3">
   <img src="https://img.shields.io/badge/license-BSL--1.1-blue" alt="License">
   <a href="https://github.com/keigoly/netflix-jikkyo/stargazers"><img src="https://img.shields.io/github/stars/keigoly/netflix-jikkyo?style=social" alt="Stars"></a>
@@ -18,6 +18,8 @@
 </p>
 
 ---
+
+**[English](README_EN.md)**
 
 Netflix Jikkyo は、Netflix の視聴画面にニコニコ風の弾幕コメントをリアルタイムで流せる Chrome 拡張機能です。同じ作品を観ている人と一緒に盛り上がろう。
 
@@ -51,11 +53,15 @@ Netflix Jikkyo は、Netflix の視聴画面にニコニコ風の弾幕コメン
 3. **サイドパネルで管理** — Chrome サイドバーからコメント一覧・設定・NG フィルターを確認
 4. **ニコ生連携** — サイドパネルの「ニコ生連携」セクションから接続し、ニコ生コメントをリアルタイム表示
 
-## v1.0.5 の主な変更
+## v1.0.6 の主な変更
 
-- **アーカイブ再生の安定性向上** — ニコ生ブリッジ接続中に別タブでアーカイブを視聴してもライブ誤判定が発生しないように修正
-- **タイトル別ブリッジ判定** — ニコ生ブリッジの接続状態をタイトル単位で正確に判定し、無関係なタブへの影響を防止
-- **追っかけ再生時のコメント保存改善** — ライブ中の追っかけ再生で受信したニコ生コメントに再生位置が正しく記録されるように修正
+- **Canvas 弾幕レンダラー** — DOM ベースから Canvas ベースに完全書き換え。描画パフォーマンスが大幅に向上し、大量コメント時もスムーズな再生を実現
+- **管理者コメント刷新** — ニコ生風の白テキスト + 暗いバー背景、10秒表示、フォント自動調整で画面幅に収まる一行表示
+- **ゴシップ P2P** — ピアリスト交換による全体接続数のより正確な推定
+- **認証改善** — ログアウト時のデータ保持、アカウント別ニコ生認証
+- **アーカイブコメント** — 過去のライブ配信のコメントをアーカイブ再生時に自動表示
+- **Noto Sans JP フォント** — 日本語フォントをバンドルし、環境に依存しない一貫した表示
+- **IndexedDB バッチ書き込み** — コメント保存のパフォーマンスを最適化
 
 ## プライバシー
 

@@ -166,6 +166,8 @@ export interface SidePanelComment {
     userId?: string;
     /** コメントソース */
     source?: CommentSource;
+    /** 送信者がニコ生連携済みか */
+    nicoLinked?: boolean;
   };
 }
 

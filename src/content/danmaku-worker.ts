@@ -168,12 +168,35 @@ function drawItems(danList: DanmakuItem[]): void {
       text = text.slice(0, MAX_COMMENT_TEXT_LENGTH);
     }
 
-    // 管理者コメント: 上部中央固定表示
+    // 管理者コメント: 上部中央固定表示 (フォントサイズ自動調整)
     if (item.admin) {
+      const maxWidth = cw * 0.9;
+      const minFontSize = fontSize * 0.4;
+      let adminFontSize = fontSize * 1.15;
+      let adminWidth = measureText(text, adminFontSize);
+      if (adminWidth > maxWidth && adminWidth > 0) {
+        adminFontSize = adminFontSize * (maxWidth / adminWidth);
+        if (adminFontSize < minFontSize) {
+          adminFontSize = minFontSize;
+          const charWidth = measureText(text, adminFontSize) / text.length;
+          let maxChars = Math.floor(maxWidth / charWidth) - 1;
+          if (maxChars > 0 && maxChars < text.length) {
+            text = text.slice(0, maxChars) + '…';
+          }
+          adminWidth = measureText(text, adminFontSize);
+          // 幅超過時は1文字ずつ削って再計測 (日本語・ASCII混在対応)
+          while (adminWidth > maxWidth && text.length > 2) {
+            text = text.slice(0, -2) + '…';
+            adminWidth = measureText(text, adminFontSize);
+          }
+        } else {
+          adminWidth = maxWidth;
+        }
+      }
       adminItems.push({
         text,
-        width: measureText(text, fontSize * 1.15),
-        fontSize: fontSize * 1.15,
+        width: adminWidth,
+        fontSize: adminFontSize,
         startTime: performance.now(),
         opacity: 0,
       });
@@ -301,43 +324,42 @@ function renderFlowingComments(dt: number, cw: number): void {
 
 function renderAdminComments(timestamp: number, cw: number): void {
   const fontFamily = settings.danmakuFontFamily || "'Montserrat'";
+  const ADMIN_DURATION = 10000; // 10秒表示
 
   let i = adminItems.length;
   while (i--) {
     const item = adminItems[i];
     const elapsed = timestamp - item.startTime;
 
-    if (elapsed > 5000) {
+    if (elapsed > ADMIN_DURATION) {
       adminItems.splice(i, 1);
       continue;
     }
 
-    const progress = elapsed / 5000;
-    if (progress < 0.08) item.opacity = progress / 0.08;
-    else if (progress > 0.85) item.opacity = (1 - progress) / 0.15;
+    const progress = elapsed / ADMIN_DURATION;
+    if (progress < 0.05) item.opacity = progress / 0.05;
+    else if (progress > 0.9) item.opacity = (1 - progress) / 0.1;
     else item.opacity = 1;
 
-    const gradH = item.fontSize + 30;
-    const grad = ctx.createLinearGradient(0, 0, 0, gradH);
-    grad.addColorStop(0, `rgba(0,0,0,${0.7 * item.opacity})`);
-    grad.addColorStop(0.7, `rgba(0,0,0,${0.5 * item.opacity})`);
-    grad.addColorStop(1, `rgba(0,0,0,0)`);
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, cw, gradH);
+    // 半透明の暗いバー背景 (ニコ生風)
+    const barH = item.fontSize + 16;
+    ctx.fillStyle = `rgba(0,0,0,${0.6 * item.opacity})`;
+    ctx.fillRect(0, 0, cw, barH);
 
     ctx.font = `bold ${item.fontSize}px ${fontFamily}, "Segoe UI", Arial`;
     ctx.textBaseline = 'top';
     ctx.globalAlpha = item.opacity;
 
     const x = (cw - item.width) / 2;
-    const y = 10;
+    const y = 8;
 
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+    // 白テキスト + 黒縁取り
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(0,0,0,0.8)';
     ctx.lineJoin = 'round';
     ctx.strokeText(item.text, x, y);
 
-    ctx.fillStyle = '#FFE133';
+    ctx.fillStyle = '#FFFFFF';
     ctx.fillText(item.text, x, y);
 
     ctx.globalAlpha = 1;
